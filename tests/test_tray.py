@@ -48,7 +48,10 @@ def actions(**options):
     journal = []
     base = dict(ouvrir=lambda: journal.append("ouvrir"),
                 redemarrer=lambda: journal.append("redemarrer"),
-                arreter=lambda: journal.append("arreter"))
+                arreter=lambda: journal.append("arreter"),
+                version_disponible=lambda: None,
+                mettre_a_jour=lambda: journal.append("mettre_a_jour"),
+                creer_raccourci=lambda: journal.append("raccourci"))
     base.update(options)
     return apptray.Actions(**base), journal
 
@@ -58,45 +61,41 @@ def textes(menu):
 
 
 class Menu(unittest.TestCase):
-    def test_menu_minimal(self):
+    def test_menu_commun(self):
         a, _ = actions()
         menu = apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)
-        self.assertEqual(textes(menu), ["Ouvrir", "Redémarrer", "Arrêter"])
+        self.assertEqual(textes(menu), ["Ouvrir", "Redémarrer", "Arrêter",
+                                        "Créer un raccourci sur le Bureau"])
         self.assertTrue(menu[0].default)
 
-    def test_menu_complet_dans_l_ordre_commun(self):
-        a, _ = actions(version_disponible=lambda: "1.2.3", mettre_a_jour=lambda: None,
-                       creer_raccourci=lambda: None,
-                       elements=[apptray.Element({"fr": "Pause", "en": "Pause"}, lambda: None)])
+    def test_menu_avec_mise_a_jour(self):
+        a, _ = actions(version_disponible=lambda: "1.2.3")
         menu = apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)
-        self.assertEqual(textes(menu), ["Ouvrir", "Pause", "Mettre à jour vers 1.2.3",
+        self.assertEqual(textes(menu), ["Ouvrir", "Mettre à jour vers 1.2.3",
                                         "Redémarrer", "Arrêter",
                                         "Créer un raccourci sur le Bureau"])
 
-    def test_mise_a_jour_seulement_si_une_version_est_connue(self):
-        a, _ = actions(version_disponible=lambda: None, mettre_a_jour=lambda: None)
-        self.assertNotIn("Mettre à jour", " ".join(
-            textes(apptray.entrees(a, FAUX_PYSTRAY, lambda action: None))))
+    def test_aucune_entree_propre_a_une_application(self):
+        # Le même menu dans les quatre applications : rien ne permet d'y
+        # ajouter une entrée, la page qu'ouvre Ouvrir gère le reste.
+        with self.assertRaises(TypeError):
+            actions(elements=[])
+        with self.assertRaises(TypeError):
+            apptray.Actions(ouvrir=lambda: None, redemarrer=lambda: None,
+                            arreter=lambda: None)
 
     def test_anglais_et_langue_inconnue(self):
         for langue in ("en", "de"):
             a, _ = actions(langue=lambda langue=langue: langue)
             self.assertEqual(textes(apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)),
-                             ["Open", "Restart", "Stop"])
+                             ["Open", "Restart", "Stop", "Create a Desktop shortcut"])
 
-    def test_case_a_cocher(self):
-        etat = {"pause": True}
-        a, _ = actions(elements=[apptray.Element({"fr": "Pause"}, lambda: None,
-                                                 coche=lambda: etat["pause"])])
-        item = apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)[1]
-        self.assertTrue(item.checked(item))
-        etat["pause"] = False
-        self.assertFalse(item.checked(item))
-
-    def test_ouvrir_appelle_l_application(self):
+    def test_ouvrir_et_raccourci_appellent_l_application(self):
         a, journal = actions()
-        apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)[0].action(None, None)
-        self.assertEqual(journal, ["ouvrir"])
+        menu = apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)
+        menu[0].action(None, None)
+        menu[-1].action(None, None)
+        self.assertEqual(journal, ["ouvrir", "raccourci"])
 
     def test_mise_a_jour_qui_referme_l_icone(self):
         refermees = []

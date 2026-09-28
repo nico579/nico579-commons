@@ -1,12 +1,13 @@
 """Icône de zone de notification commune à blink2video, lidar2map,
 watch2notif et gpxsolar.
 
-Menu, dans cet ordre : Ouvrir (action par défaut, double clic), les
-éléments propres à l'application, « Mettre à jour vers x.y » seulement
-quand une version plus récente est connue, Redémarrer, Arrêter, et
-« Créer un raccourci sur le Bureau » si l'application le fournit.
-L'application ne donne que ses actions ; ce module porte ce que les quatre
-ont appris à leurs dépens, repris du tray.py de blink2video :
+Le même menu dans les quatre, sans élément propre à l'une d'elles (Nico,
+2026-09-28) : Ouvrir (action par défaut, double clic), « Mettre à jour
+vers x.y » seulement quand une version plus récente est connue,
+Redémarrer, Arrêter, « Créer un raccourci sur le Bureau ». Tout le reste
+passe par la page qu'ouvre Ouvrir. L'application ne donne que ses
+actions, toutes obligatoires ; ce module porte ce que les quatre ont
+appris à leurs dépens, repris du tray.py de blink2video :
 
 - le menu est reconstruit toutes les CADENCE_MENU secondes, sans quoi le
   backend win32 de pystray garde le menu construit au démarrage (langue,
@@ -25,9 +26,9 @@ from __future__ import annotations
 
 import sys
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional
 
 # Secondes entre deux reconstructions du menu.
 CADENCE_MENU = 5
@@ -45,20 +46,8 @@ LIBELLES = {
 
 
 @dataclass
-class Element:
-    """Élément propre à une application, placé juste après Ouvrir.
-
-    ``libelles`` : {"fr": ..., "en": ...}. ``coche`` : appelable rendant
-    l'état d'une case à cocher (Pause de watch2notif), ou None."""
-    libelles: dict
-    action: Callable[[], None]
-    coche: Optional[Callable[[], bool]] = None
-
-
-@dataclass
 class Actions:
-    """Ce que l'application fournit. Seuls ouvrir, redemarrer et arreter
-    sont obligatoires.
+    """Ce que l'application fournit, une action par entrée du menu.
 
     ``redemarrer``, ``arreter`` et ``mettre_a_jour`` tournent sur un fil à
     part, l'icône se refermant aussitôt : ils arrêtent l'application (et la
@@ -74,10 +63,9 @@ class Actions:
     ouvrir: Callable[[], None]
     redemarrer: Callable[[], None]
     arreter: Callable[[], None]
-    version_disponible: Optional[Callable[[], Optional[str]]] = None
-    mettre_a_jour: Optional[Callable[[], None]] = None
-    creer_raccourci: Optional[Callable[[], None]] = None
-    elements: Sequence[Element] = field(default_factory=tuple)
+    version_disponible: Callable[[], Optional[str]]
+    mettre_a_jour: Callable[[], None]
+    creer_raccourci: Callable[[], None]
     langue: Callable[[], str] = lambda: "fr"
     mettre_a_jour_referme: bool = True
 
@@ -121,19 +109,11 @@ def entrees(actions: Actions, pystray, arreter_icone) -> list:
 
     ``arreter_icone(action)`` : lance ``action`` sur un fil à part puis
     referme l'icône (voir Tray)."""
-    langue = actions.langue()
-    mots = libelles(langue)
+    mots = libelles(actions.langue())
     menu = [pystray.MenuItem(mots["ouvrir"], lambda icon, item: actions.ouvrir(),
                              default=True)]
-    for element in actions.elements:
-        texte = element.libelles.get(langue) or element.libelles.get("en", "")
-        coche = None
-        if element.coche is not None:
-            coche = (lambda e: lambda item: e.coche())(element)
-        menu.append(pystray.MenuItem(
-            texte, (lambda e: lambda icon, item: e.action())(element), checked=coche))
-    version = actions.version_disponible() if actions.version_disponible else None
-    if version and actions.mettre_a_jour is not None:
+    version = actions.version_disponible()
+    if version:
         lancer = arreter_icone if actions.mettre_a_jour_referme else en_fond
         menu.append(pystray.MenuItem(mots["maj"].format(version=version),
                                      lambda icon, item: lancer(actions.mettre_a_jour)))
@@ -141,9 +121,8 @@ def entrees(actions: Actions, pystray, arreter_icone) -> list:
                                  lambda icon, item: arreter_icone(actions.redemarrer)))
     menu.append(pystray.MenuItem(mots["arreter"],
                                  lambda icon, item: arreter_icone(actions.arreter)))
-    if actions.creer_raccourci is not None:
-        menu.append(pystray.MenuItem(mots["raccourci"],
-                                     lambda icon, item: actions.creer_raccourci()))
+    menu.append(pystray.MenuItem(mots["raccourci"],
+                                 lambda icon, item: actions.creer_raccourci()))
     return menu
 
 
@@ -176,7 +155,10 @@ class Tray:
             import pystray
         if image is None:
             from PIL import Image
-            image = Image.open(str(self.icone))
+            # Copie chargée, fichier refermé : Image.open seul le garde
+            # ouvert jusqu'au premier affichage de l'icône.
+            with Image.open(str(self.icone)) as source:
+                image = source.copy()
         menu = pystray.Menu(lambda: iter(entrees(self.actions, pystray, self._arreter_icone)))
         self._icon = pystray.Icon(self.nom, image, self.titre, menu=menu)
         return self._icon

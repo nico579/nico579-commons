@@ -14,12 +14,13 @@ behave the same and a fix lands everywhere at once.
 
 ## Modules
 
-- `nico579_commons.tray`: the tray icon, with the menu shared by the four
-  apps: Open, the app's own items, "Update to x.y" only when a newer version
-  is known, Restart, Stop, and "Create a Desktop shortcut". The menu is
-  rebuilt every five seconds, on the main thread under macOS; Restart, Stop
-  and Update run off the icon's message loop, and the icon waits for them
-  before returning.
+- `nico579_commons.tray`: the tray icon, with the very same menu in all four
+  apps: Open, "Update to x.y" only when a newer version is known, Restart,
+  Stop, and "Create a Desktop shortcut". There is no room for app-specific
+  entries on purpose: everything else lives in the page that Open brings
+  up. The menu is rebuilt every five seconds, on the main thread under
+  macOS; Restart, Stop and Update run off the icon's message loop, and the
+  icon waits for them before returning.
 - `nico579_commons.raccourci`: a desktop shortcut in one call, as a .lnk on
   Windows, a small .app on macOS and a trusted .desktop file on Linux.
 - `nico579_commons.maj`: a light check for a newer GitHub release, asked at
@@ -43,7 +44,9 @@ from nico579_commons import tray
 
 actions = tray.Actions(ouvrir=open_page, redemarrer=restart, arreter=stop,
                        version_disponible=cached_newer_version,
-                       mettre_a_jour=start_update, langue=current_language)
+                       mettre_a_jour=start_update,
+                       creer_raccourci=create_desktop_shortcut,
+                       langue=current_language)
 tray.Tray("myapp", Path("assets/myapp.ico"), actions).executer()
 ```
 

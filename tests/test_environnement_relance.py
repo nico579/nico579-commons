@@ -10,7 +10,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import types
 import unittest
 from pathlib import Path
@@ -170,19 +169,23 @@ class Relancer(unittest.TestCase):
 
     def test_vrai_processus_relance(self):
         # Le nouveau processus tourne vraiment, et hors Windows dans sa
-        # propre session, ce qui le soustrait au nettoyage de launchd.
+        # propre session, ce qui le soustrait au nettoyage de launchd. Le
+        # vrai Popen, avec les options de relancer() ; seul le test garde
+        # l'objet pour attendre la fin de l'enfant.
+        lances = []
+
+        def demarrer(commande, **options):
+            lances.append(subprocess.Popen(commande, **options))
+
         with tempfile.TemporaryDirectory() as dossier:
             sortie = Path(dossier) / "session.txt"
             code = ("import os, sys; from pathlib import Path; "
                     "s = os.getsid(0) if hasattr(os, 'getsid') else -1; "
                     "Path(sys.argv[1]).write_text(str(s))")
             mode = relance.relancer([sys.executable, "-c", code, str(sortie)],
-                                    nom="essai", unite="")
+                                    nom="essai", unite="", demarrer=demarrer)
             self.assertEqual(mode, "processus")
-            for _ in range(200):
-                if sortie.exists() and sortie.read_text():
-                    break
-                time.sleep(0.05)
+            self.assertEqual(lances[0].wait(timeout=30), 0)
             self.assertTrue(sortie.exists(), "le processus relancé n'a rien écrit")
             if hasattr(os, "getsid"):
                 self.assertNotEqual(int(sortie.read_text()), os.getsid(0))
