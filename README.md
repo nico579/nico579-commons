@@ -20,6 +20,11 @@ behave the same and a fix lands everywhere at once.
   rebuilt every five seconds, on the main thread under macOS; Restart, Stop
   and Update run off the icon's message loop, and the icon waits for them
   before returning.
+- `nico579_commons.raccourci`: a desktop shortcut in one call, as a .lnk on
+  Windows, a small .app on macOS and a trusted .desktop file on Linux.
+- `nico579_commons.maj`: a light check for a newer GitHub release, asked at
+  most once an hour by a background thread, so the tray menu and the page
+  read the answer without waiting for the network.
 
 The inventory of what is shared, and where the work stands, lives in
 [INVENTAIRE.md](INVENTAIRE.md) (in French).
