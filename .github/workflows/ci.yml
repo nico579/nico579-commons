@@ -2,7 +2,8 @@ name: CI
 
 # Les tests ne demandent aucune zone de notification : un faux pystray
 # enregistre ce que le module lui demande. Python 3.8 en plus, pour
-# l'édition Windows 7 de blink2video.
+# l'édition Windows 7 de blink2video. Le job systemd éprouve la relance
+# sous un vrai service utilisateur, ce qu'aucun poste ne doit faire.
 
 on:
   push:
@@ -46,3 +47,20 @@ jobs:
         run: |
           python -m pip install --quiet build
           python -m build
+
+  systemd:
+    name: Relance sous un vrai service systemd
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # Le gestionnaire systemd de l'utilisateur ne tourne pas d'office sur
+      # le runner : « linger » le démarre sans session ouverte.
+      - name: Gestionnaire systemd de l'utilisateur
+        run: |
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+      - name: Relance, et témoin sans systemd
+        run: python tests/essai_systemd.py

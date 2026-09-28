@@ -64,7 +64,13 @@ class Actions:
     part, l'icône se refermant aussitôt : ils arrêtent l'application (et la
     relancent, pour les deux derniers). ``version_disponible`` est appelée à
     chaque reconstruction du menu : elle doit rendre vite, sans réseau
-    (un cache entretenu ailleurs), la version plus récente ou None."""
+    (un cache entretenu ailleurs), la version plus récente ou None.
+
+    ``mettre_a_jour_referme`` faux : l'icône reste après Mettre à jour,
+    l'action tournant toujours sur un fil à part. C'est le cas d'une
+    application qui ouvre la page de la version (lidar2map, gpxsolar), ou
+    qui télécharge d'abord et lève elle-même ``arret`` quand l'installation
+    est prête (watch2notif)."""
     ouvrir: Callable[[], None]
     redemarrer: Callable[[], None]
     arreter: Callable[[], None]
@@ -73,6 +79,7 @@ class Actions:
     creer_raccourci: Optional[Callable[[], None]] = None
     elements: Sequence[Element] = field(default_factory=tuple)
     langue: Callable[[], str] = lambda: "fr"
+    mettre_a_jour_referme: bool = True
 
 
 def disponible() -> bool:
@@ -104,6 +111,11 @@ def libelles(langue: str) -> dict:
     return LIBELLES.get(langue, LIBELLES["en"])
 
 
+def en_fond(action) -> None:
+    """``action`` sur un fil à part, hors de la pompe de messages de l'icône."""
+    threading.Thread(target=action, daemon=True).start()
+
+
 def entrees(actions: Actions, pystray, arreter_icone) -> list:
     """Les entrées du menu, dans l'ordre commun, pour la langue du moment.
 
@@ -122,8 +134,9 @@ def entrees(actions: Actions, pystray, arreter_icone) -> list:
             texte, (lambda e: lambda icon, item: e.action())(element), checked=coche))
     version = actions.version_disponible() if actions.version_disponible else None
     if version and actions.mettre_a_jour is not None:
+        lancer = arreter_icone if actions.mettre_a_jour_referme else en_fond
         menu.append(pystray.MenuItem(mots["maj"].format(version=version),
-                                     lambda icon, item: arreter_icone(actions.mettre_a_jour)))
+                                     lambda icon, item: lancer(actions.mettre_a_jour)))
     menu.append(pystray.MenuItem(mots["redemarrer"],
                                  lambda icon, item: arreter_icone(actions.redemarrer)))
     menu.append(pystray.MenuItem(mots["arreter"],

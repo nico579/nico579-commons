@@ -98,6 +98,26 @@ class Menu(unittest.TestCase):
         apptray.entrees(a, FAUX_PYSTRAY, lambda action: None)[0].action(None, None)
         self.assertEqual(journal, ["ouvrir"])
 
+    def test_mise_a_jour_qui_referme_l_icone(self):
+        refermees = []
+        a, _ = actions(version_disponible=lambda: "1.2.3", mettre_a_jour=lambda: None)
+        item = apptray.entrees(a, FAUX_PYSTRAY, refermees.append)[1]
+        item.action(None, None)
+        self.assertEqual(refermees, [a.mettre_a_jour])
+
+    def test_mise_a_jour_qui_laisse_l_icone(self):
+        # Page de la version (lidar2map, gpxsolar), ou téléchargement avant
+        # installation (watch2notif) : l'action tourne hors de la pompe de
+        # messages, et l'icône reste.
+        refermees, faite = [], threading.Event()
+        a, _ = actions(version_disponible=lambda: "1.2.3", mettre_a_jour=faite.set,
+                       mettre_a_jour_referme=False)
+        item = apptray.entrees(a, FAUX_PYSTRAY, refermees.append)[1]
+        self.assertEqual(item.texte, "Mettre à jour vers 1.2.3")
+        item.action(None, None)
+        self.assertTrue(faite.wait(2))
+        self.assertEqual(refermees, [])
+
 
 class Sortie(unittest.TestCase):
     def test_redemarrer_hors_pompe_puis_attente_avant_de_rendre_la_main(self):

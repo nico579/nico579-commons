@@ -25,6 +25,13 @@ behave the same and a fix lands everywhere at once.
 - `nico579_commons.maj`: a light check for a newer GitHub release, asked at
   most once an hour by a background thread, so the tray menu and the page
   read the answer without waiting for the network.
+- `nico579_commons.relance`: what "Restart" needs. Under the app's own
+  systemd user service, systemd itself restarts it, since a process spawned
+  from inside the service would be killed along with it; elsewhere, a new
+  detached process, in its own session so that launchd leaves it alone.
+- `nico579_commons.environnement`: gives system programs (systemctl,
+  xdg-open, the browser) the `LD_LIBRARY_PATH` they had before the
+  PyInstaller bootloader prefixed it with the app's own libraries.
 
 The inventory of what is shared, and where the work stands, lives in
 [INVENTAIRE.md](INVENTAIRE.md) (in French).
