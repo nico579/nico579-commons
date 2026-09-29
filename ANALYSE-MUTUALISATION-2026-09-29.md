@@ -388,6 +388,24 @@ chemin. Améliorations proposées, dans l'ordre où je les mettrais :
   persistant posé sans clic : il devrait rester visible et retirable (une
   ligne dans les réglages, ou dans l'aide).
 
+### Précisions suivantes : l'icône du Bureau se demande par un bandeau
+
+- **Forme retenue (Nico, 2026-09-29)** : un bandeau dans la page web de
+  l'application, à sa première ouverture, deux boutons (« Créer l'icône sur le
+  Bureau », « Non merci »). Non bloquant ; le choix est mémorisé dans le dossier
+  d'état et ne se redemande pas ; « Créer un raccourci » reste dans le menu de
+  l'icône. Programme installé seulement. Pas de création automatique.
+- **Langue** : le bandeau réutilise la langue déjà choisie par la page
+  (préférence enregistrée, sinon celle du navigateur : « fr » donne le
+  français, tout le reste l'anglais), et ses textes FR et EN suivent le
+  sélecteur de la page. Composant commun : JavaScript et CSS de la
+  bibliothèque servis par `serveweb`, plus une route ; une ligne à ajouter à la
+  page de chaque application.
+- **watch2notif à adapter** : sa page démarre en anglais (`let lang = 'en'`)
+  avant que sa préférence ne s'applique, au lieu de détecter la langue du
+  navigateur comme les trois autres. À corriger dans la première vague, sans
+  quoi le bandeau s'y affiche d'abord en anglais.
+
 ### Ordre des vagues proposé
 
 1. Serveur commun complété (décision 1), écriture atomique, dossiers, puis
