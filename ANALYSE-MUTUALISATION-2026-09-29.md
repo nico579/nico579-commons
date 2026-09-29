@@ -367,18 +367,32 @@ chemin. Améliorations proposées, dans l'ordre où je les mettrais :
    large qu'un /24, et une limite du débit du journal des refus (un client
    insistant ne doit pas remplir le disque).
 
-### À clarifier : le démarrage automatique de lidar2map
+### Précisions du même jour (démarrage automatique et icône du Bureau)
 
-lidar2map a déjà un démarrage automatique (case dans la page, `_autostart.py`,
-service systemd, agent launchd, dossier Démarrage, migration des versions
-<= 1.53). Deux lectures de la décision 5 : ne pas l'étendre ni le partager
-(recommandé : le retirer casserait des installations, et `raccourci_bureau()`
-s'appuie sur sa commande), ou le retirer.
+- **Décision 5, tranchée** : personne n'a activé le démarrage automatique de
+  lidar2map, il ne sert à rien sur ce projet : il sera retiré, avec la case de
+  la page, l'API `set-autostart` et `_autostart.py`. Précautions : nettoyer au
+  premier lancement d'une version récente toute entrée laissée par une
+  ancienne (service systemd, agent launchd, dossier Démarrage, script .vbs des
+  versions <= 1.53), et garder ce dont `raccourci_bureau()` a besoin, qui
+  s'appuie aujourd'hui sur la commande du démarrage automatique. Le partage du
+  démarrage automatique ne concerne donc que blink2video et watch2notif.
+- **Décision 10, nouvelle** : les quatre projets créent une icône sur le Bureau
+  au premier lancement. Le module `raccourci` de la bibliothèque sait déjà la
+  créer (elle sert au menu de l'icône) ; il manque le déclenchement unique.
+  Propositions : un marqueur dans le dossier d'état, une seule tentative, jamais
+  recréée si l'utilisateur la supprime ; seulement pour un programme installé
+  (figé), pas pour des sources lancées d'un dépôt ; blink2video passe alors sur
+  le module de la bibliothèque, ce qui supprime sa copie de 204 lignes. Les
+  tests ne doivent jamais toucher au vrai Bureau. C'est un effet de bord
+  persistant posé sans clic : il devrait rester visible et retirable (une
+  ligne dans les réglages, ou dans l'aide).
 
 ### Ordre des vagues proposé
 
 1. Serveur commun complété (décision 1), écriture atomique, dossiers, puis
-   instance et port, langue, version de la page, colle du menu. Branchement de
+   instance et port, langue, version de la page, colle du menu, et l'icône du
+   Bureau au premier lancement (décision 10). Branchement de
    gpxsolar, lidar2map, watch2notif, blink2video, bornes `<1`.
 2. `deploy.py` partagé (décision 9), et les workflows réutilisables si Nico les
    retient.
