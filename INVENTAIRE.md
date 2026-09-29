@@ -44,10 +44,14 @@ deux langues ; pas de brique commune de traduction à ce stade.
   chemin d'installation contenant une espace le casserait. blink2video et
   lidar2map échappent chaque argument. À reprendre avec la brique 7.
 - lidar2map, bouton « Nouvelle instance » : sous le service systemd du
-  démarrage automatique, la seconde instance naît dans le cgroup du
-  service. Qu'on arrête la première, et systemd tue aussi la seconde, qui a
-  pourtant sa propre icône. Même cause que l'issue #35 de blink2video ; non
-  corrigé, à traiter avec la brique 9 (instance et port).
+  démarrage automatique, la seconde instance naissait dans le cgroup du
+  service. Qu'on arrête la première, et systemd tuait aussi la seconde, qui
+  a pourtant sa propre icône. Même cause que l'issue #35 de blink2video.
+  Corrigé par `relance.hors_du_service` (0.3.1, portée systemd à part,
+  éprouvée en CI sous un vrai service), sur la branche feat/commons de
+  lidar2map. blink2video garde encore son propre remède
+  (autostart.sortir_du_service) : à brancher sur la bibliothèque après la
+  brique 10, qui rendra son verrou régénérable.
 - Le serveur web de watch2notif ne consulte pas Sec-Fetch-Site : il vérifie
   Origin, que les navigateurs envoient sur tout POST venu d'un autre site,
   donc pas de faille, mais une défense de moins que lidar2map et gpxsolar.
