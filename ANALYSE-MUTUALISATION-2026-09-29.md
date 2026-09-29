@@ -314,6 +314,8 @@ gpx = l2m 66 ; `_installation.py` gpx = `_bootstrap_runtime.py` l2m 57 ;
 39 (`_refuser`) ; autostart l2m = w2n 35 ; `lidar2map.py` = `gpxsolar.py` 25 ;
 `maj.py` b2v = `update_check.py` w2n 9.
 
-Le relevé est reproductible : un script d'une centaine de lignes (analyse
-`ast`, difflib) le refait en une minute. Je peux le verser à la bibliothèque
-(`outils/`) si tu veux suivre l'évolution de ces mesures.
+Le relevé est reproductible : `python outils/inventaire_communs.py` le refait
+en une minute (analyse `ast`, difflib), en lecture seule, sur les dépôts voisins
+de celui de la bibliothèque (`--racine` et `--depot sigle=chemin` pour d'autres
+emplacements). Vérifié le 2026-09-29 : mêmes volumes, mêmes 76 définitions de
+même nom, mêmes 36 groupes et 638 lignes en double que ceux de ce rapport.

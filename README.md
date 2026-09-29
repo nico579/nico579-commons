@@ -49,7 +49,10 @@ behave the same and a fix lands everywhere at once.
   a free port and tells whether an instance of the app already answers.
 
 The inventory of what is shared, and where the work stands, lives in
-[INVENTAIRE.md](INVENTAIRE.md) (in French).
+[INVENTAIRE.md](INVENTAIRE.md) (in French). `python outils/inventaire_communs.py`
+re-measures what is still duplicated across the four repositories (read-only);
+[ANALYSE-MUTUALISATION-2026-09-29.md](ANALYSE-MUTUALISATION-2026-09-29.md) is
+the analysis it produced.
 
 ## Install
 
