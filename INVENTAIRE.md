@@ -122,8 +122,33 @@ embarque la bibliothèque et pystray depuis ce venv. Trois conséquences :
   llvmlite 0.43, numpy 2.0), portée par un marqueur de requirements.in ; le
   filtre CSF y est compilé depuis ses sources, comme avant.
 
-Reste : gpxsolar (même travail, son bootstrap est dans gpxsolar.py), puis
-blink2video (passage de pip-compile à uv, ses blocs à la main disparaissent).
+Fait ensuite pour gpxsolar (branche feat/dependances, CI verte, non
+publiée) : 82 paquets verrouillés, même format. Son bootstrap
+(_installation.py) est le jumeau de celui de lidar2map (_bootstrap_runtime.py)
+et ne peut pas vivre ici : il s'exécute avant que le moindre paquet, cette
+bibliothèque comprise, soit installé. Deux écarts voulus entre les jumeaux :
+numba est exclu des Mac Intel chez gpxsolar (son build 1.6.2 s'en passait
+déjà) alors que lidar2map le garde à 0.60 ; et py7zr, facultatif chez
+gpxsolar avant le verrou, y est désormais exigé au démarrage.
+
+Fait pour blink2video (branche feat/uv-et-bibliotheque, non publiée) : les
+verrous passent de pip-compile à uv, sans blocs à la main. En les
+régénérant, on a constaté que requirements-build.txt datait d'avant WebRTC :
+les bundles publiés n'ont jamais embarqué aiortc, av et leurs sept voisins
+(« smoketest --webrtc » du 0.14.3 : No module named 'aioice'), et la page se
+repliait en silence sur MSE. Régénéré, le bundle Windows passe de 123 à
+202 Mo et sait faire du WebRTC ; à décider avant de publier (les roues macOS
+de av exigent macOS 14). Une garde en CI (smoketest --webrtc sur chaque
+bundle) empêche le retour du silence.
+
+Reste, à trancher : brancher autostart.sortir_du_service de blink2video sur
+relance.hors_du_service. La bibliothèque déclare pystray et Pillow comme
+dépendances : l'ajouter aux dépendances d'exécution de blink2video les
+imposerait aussi aux installations depuis les sources et à l'image Docker,
+où l'icône est facultative. Le chemin propre serait de faire de ces deux
+paquets un extra (nico579-commons[tray]) : une version 0.3.2, sans changement
+de code, que lidar2map, gpxsolar et watch2notif (qui les listent déjà)
+n'auraient pas à suivre.
 
 ## Ordre proposé
 
@@ -131,7 +156,8 @@ blink2video (passage de pip-compile à uv, ses blocs à la main disparaissent).
    fait sur branches, à publier.
 2. Brique 8 (petite, et elle comble le trou de watch2notif) : fait pour
    watch2notif.
-3. Brique 10 : fait pour lidar2map ; gpxsolar, puis blink2video (uv).
+3. Brique 10 : fait pour lidar2map, gpxsolar et blink2video (uv), sur
+   branches ; reste à publier.
 4. Briques 4, 5, 6 et 9 : lidar2map et gpxsolar en ont des copies presque
    identiques, le gain est immédiat ; watch2notif ensuite.
 5. Brique 11, puis 7.
