@@ -191,5 +191,50 @@ class Relancer(unittest.TestCase):
                 self.assertNotEqual(int(sortie.read_text()), os.getsid(0))
 
 
+class HorsDuService(unittest.TestCase):
+    """Le vrai service systemd est éprouvé en CI (tests/essai_systemd.py,
+    scénario « portée ») ; ici, la décision seule."""
+
+    COMMANDE = ["/opt/app/app", "--serve-gui", "--new-instance"]
+
+    def essai(self, code=0, erreur=None):
+        appels = []
+
+        def lancer(commande, **options):
+            appels.append(commande)
+            if erreur is not None:
+                raise erreur
+            return types.SimpleNamespace(returncode=code)
+        return appels, lancer
+
+    def test_hors_du_service_commande_telle_quelle(self):
+        appels, lancer = self.essai()
+        for options in ({"unite": ""}, {"plateforme": "win32"}, {"plateforme": "darwin"}):
+            with self.subTest(**options):
+                self.assertEqual(relance.hors_du_service(self.COMMANDE, nom="app",
+                                                         lancer=lancer, **options),
+                                 self.COMMANDE)
+        self.assertEqual(appels, [])
+
+    def test_sous_le_service_portee_a_part(self):
+        appels, lancer = self.essai()
+        self.assertEqual(
+            relance.hors_du_service(self.COMMANDE, nom="app", unite="app.service",
+                                    plateforme="linux", lancer=lancer),
+            [*relance.PORTEE_SYSTEMD, *self.COMMANDE])
+        self.assertEqual(appels, [[*relance.PORTEE_SYSTEMD, "true"]])
+
+    def test_systemd_run_en_echec_commande_telle_quelle(self):
+        for options in ({"code": 1}, {"erreur": FileNotFoundError("systemd-run")},
+                        {"erreur": subprocess.TimeoutExpired("systemd-run", 30)}):
+            with self.subTest(**{k: str(v) for k, v in options.items()}):
+                _, lancer = self.essai(**options)
+                self.assertEqual(
+                    relance.hors_du_service(self.COMMANDE, nom="app",
+                                            unite="app.service", plateforme="linux",
+                                            lancer=lancer),
+                    self.COMMANDE)
+
+
 if __name__ == "__main__":
     unittest.main()

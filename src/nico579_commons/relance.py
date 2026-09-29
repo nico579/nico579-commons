@@ -18,6 +18,10 @@ gpxsolar, complétée de deux cas qu'aucune des deux ne traitait :
 Sous Windows, CREATE_NO_WINDOW seul, jamais combiné à DETACHED_PROCESS : la
 combinaison rendait le lancement erratique (parfois quinze secondes pour
 démarrer, parfois rien), constaté sur watch2notif le 2026-09-07.
+
+hors_du_service() traite le cas voisin d'un second processus qui doit
+survivre à celui-ci (« Nouvelle instance » de lidar2map) : sous le service,
+il naîtrait lui aussi dans son cgroup, et mourrait avec lui.
 """
 
 import signal
@@ -29,6 +33,12 @@ from typing import Callable, Sequence
 # Constante de subprocess sous Windows seulement : recopiée pour que le
 # module se charge (et se teste) partout.
 CREATE_NO_WINDOW = 0x08000000
+
+# Unité « scope » transitoire, son propre cgroup, que la fin du service
+# n'atteint pas : la façon documentée de systemd de lancer un programme à
+# part (c'est aussi ainsi que les bureaux GNOME et KDE rangent les
+# applications qu'ils lancent). Même préfixe que blink2video (issue #35).
+PORTEE_SYSTEMD = ["systemd-run", "--user", "--scope", "--quiet", "--"]
 
 
 def commande(*, fige=None, executable=None, argv=None) -> list:
@@ -65,6 +75,30 @@ def unite_systemd(nom: str, cgroup: Path = Path("/proc/self/cgroup"),
                     segment.startswith(f"{nom}-") and segment.endswith(".service")):
                 return segment
     return ""
+
+
+def hors_du_service(commande: Sequence[str], *, nom: str, plateforme=None, unite=None,
+                    lancer: Callable = subprocess.run) -> list:
+    """``commande`` à lancer pour qu'elle survive à ce processus.
+
+    Sous le service systemd de l'application, préfixée de PORTEE_SYSTEMD :
+    lancée telle quelle, elle naîtrait dans le cgroup du service, quel que
+    soit son parent, et systemd la tuerait à l'arrêt ou au redémarrage du
+    service. Un essai à vide vérifie d'abord que systemd-run répond ; sinon,
+    ou hors d'un tel service, la commande telle quelle. ``unite`` : "" force
+    la commande telle quelle (essais)."""
+    plateforme = sys.platform if plateforme is None else plateforme
+    unite = unite_systemd(nom, plateforme=plateforme) if unite is None else unite
+    if not unite:
+        return list(commande)
+    try:
+        essai = lancer([*PORTEE_SYSTEMD, "true"], stdin=subprocess.DEVNULL,
+                       capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return list(commande)
+    if essai.returncode != 0:
+        return list(commande)
+    return [*PORTEE_SYSTEMD, *commande]
 
 
 def relancer(commande: Sequence[str], *, nom: str, plateforme=None, unite=None,

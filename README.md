@@ -30,6 +30,9 @@ behave the same and a fix lands everywhere at once.
   systemd user service, systemd itself restarts it, since a process spawned
   from inside the service would be killed along with it; elsewhere, a new
   detached process, in its own session so that launchd leaves it alone.
+  `hors_du_service()` does the same for a second process that must outlive
+  the app, such as lidar2map's "New instance": under the service, it starts
+  in a scope of its own (`systemd-run --user --scope`).
 - `nico579_commons.environnement`: gives system programs (systemctl,
   xdg-open, the browser) the `LD_LIBRARY_PATH` they had before the
   PyInstaller bootloader prefixed it with the app's own libraries.
