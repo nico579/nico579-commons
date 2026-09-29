@@ -141,14 +141,14 @@ repliait en silence sur MSE. Régénéré, le bundle Windows passe de 123 à
 de av exigent macOS 14). Une garde en CI (smoketest --webrtc sur chaque
 bundle) empêche le retour du silence.
 
-Reste, à trancher : brancher autostart.sortir_du_service de blink2video sur
-relance.hors_du_service. La bibliothèque déclare pystray et Pillow comme
-dépendances : l'ajouter aux dépendances d'exécution de blink2video les
-imposerait aussi aux installations depuis les sources et à l'image Docker,
-où l'icône est facultative. Le chemin propre serait de faire de ces deux
-paquets un extra (nico579-commons[tray]) : une version 0.3.2, sans changement
-de code, que lidar2map, gpxsolar et watch2notif (qui les listent déjà)
-n'auraient pas à suivre.
+0.3.2 (2026-09-29) : pystray et Pillow deviennent l'extra `tray`, la
+bibliothèque seule n'exige plus rien. Seule l'icône en a besoin ; relance,
+raccourci, maj et environnement n'emploient que la bibliothèque standard.
+Raison : brancher autostart.sortir_du_service de blink2video sur
+relance.hors_du_service en faisait, sinon, des dépendances d'exécution
+imposées aux installations depuis les sources et à l'image Docker, où
+l'icône est facultative. lidar2map, gpxsolar et watch2notif, qui listent déjà
+pystray et Pillow eux-mêmes, n'ont rien à changer.
 
 ## Ordre proposé
 

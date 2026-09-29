@@ -4,17 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nico579-commons"
-version = "0.3.1"
+version = "0.3.2"
 description = "Briques communes à blink2video, lidar2map, watch2notif et gpxsolar"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.8"
-dependencies = ["pystray>=0.19", "Pillow"]
+# La bibliothèque seule n'exige rien : relance, raccourci, maj et environnement
+# n'emploient que la bibliothèque standard. Seule l'icône (nico579_commons.tray)
+# a besoin de pystray et de Pillow, d'où l'extra « tray » ; une application qui
+# n'en veut pas, ou qui les déclare déjà elle-même, ne les tire pas de force.
+dependencies = []
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
 ]
+
+[project.optional-dependencies]
+tray = ["pystray>=0.19", "Pillow"]
 
 [project.urls]
 Source = "https://github.com/nico579/nico579-commons"

@@ -40,6 +40,18 @@ behave the same and a fix lands everywhere at once.
 The inventory of what is shared, and where the work stands, lives in
 [INVENTAIRE.md](INVENTAIRE.md) (in French).
 
+## Install
+
+```sh
+pip install nico579-commons          # relance, raccourci, maj, environnement
+pip install "nico579-commons[tray]"  # plus pystray and Pillow, for the icon
+```
+
+The package on its own requires nothing: only `tray` needs pystray and Pillow
+(the `tray` extra), and `tray.disponible()` says whether they, and a
+notification area, are there. An app that lists them itself does not need the
+extra.
+
 ## Use
 
 ```python
