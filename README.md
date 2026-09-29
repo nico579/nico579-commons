@@ -36,6 +36,17 @@ behave the same and a fix lands everywhere at once.
 - `nico579_commons.environnement`: gives system programs (systemctl,
   xdg-open, the browser) the `LD_LIBRARY_PATH` they had before the
   PyInstaller bootloader prefixed it with the app's own libraries.
+- `nico579_commons.atomique`: atomic JSON writes, tolerant JSON reads (BOM,
+  transient Windows refusals) and an inter-process file lock.
+- `nico579_commons.dossiers`: where an app keeps its state (the OS data
+  folder) and its outputs (Documents), an `<APP>_HOME` override, and the
+  one-time carry-over of the state an older version kept in its working
+  folder. An app is a `Dossiers("name", ...)` with its own file names.
+- `nico579_commons.serveweb`: the local web server behind each app's page:
+  static files, `/api/*` routes in JSON, and the checks on where a request
+  comes from (Host, client address, Origin, Sec-Fetch-Site). An app subclasses
+  `Handler` for its own variable and routes with query parameters. Also finds
+  a free port and tells whether an instance of the app already answers.
 
 The inventory of what is shared, and where the work stands, lives in
 [INVENTAIRE.md](INVENTAIRE.md) (in French).
