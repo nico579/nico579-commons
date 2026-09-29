@@ -319,3 +319,73 @@ en une minute (analyse `ast`, difflib), en lecture seule, sur les dépôts voisi
 de celui de la bibliothèque (`--racine` et `--depot sigle=chemin` pour d'autres
 emplacements). Vérifié le 2026-09-29 : mêmes volumes, mêmes 76 définitions de
 même nom, mêmes 36 groupes et 638 lignes en double que ceux de ce rapport.
+
+## 9. Décisions de Nico (2026-09-29) et plan qui en découle
+
+| # | Décision | Conséquence |
+|---|---|---|
+| 1 | Logique de sécurité de blink2video pour les quatre « si c'est la meilleure solution (à améliorer ?) » | Oui, en prenant le meilleur des quatre, pas seulement celle de blink2video (voir ci-dessous) |
+| 2 | Garder les modules 0.4.0 déjà sur `main` | Ils servent de base ; `serveweb` sera complété (décision 1) |
+| 3 | Les quatre projets | blink2video est branché comme les autres, avec les précautions du § 3.3 pour ses chemins d'état |
+| 4 | Mise à jour automatique pour lidar2map et gpxsolar : oui | La famille 3.9 (installation des mises à jour) est retenue, en dernier |
+| 5 | Pas de démarrage automatique pour gpxsolar ni pour lidar2map (« usage ponctuel, pas de la surveillance ») | Le partage du démarrage automatique (3.7) ne concerne que blink2video et watch2notif. À clarifier : lidar2map a déjà le sien (voir ci-dessous) |
+| 6 | Pas de notifications pour lidar2map ni gpxsolar (l'ouverture du dossier des résultats suffit) | La famille 3.10 est abandonnée |
+| 7 | Bornes de version élargies | Les applications déclarent `nico579-commons>=x,<1` ; plus de relèvement à chaque mineure |
+| 8 | Releases groupées | Une release par application à la fin d'une série de vagues, pas une par vague |
+| 9 | `deploy.py` partagé | Un module de la bibliothèque, importé par un `deploy.py` mince dans chaque dépôt |
+
+Le codage se fait par vagues, selon le quota disponible ; rien n'est engagé
+avant que Nico le décide.
+
+### Sécurité du serveur : « le meilleur, et à améliorer »
+
+Mesure faite pour la décision 1 (2026-09-29). Ce que chaque application a :
+
+- blink2video : plusieurs hôtes de confiance et sous-réseaux CIDR ; journal des
+  accès refusés ; jeton par processus exigé sur l'API (`X-Blink-Token`) ;
+  en-têtes `Content-Security-Policy` (dont `frame-ancestors`),
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`. Pas de
+  contrôle `Sec-Fetch-Site` (le jeton en tient lieu).
+- lidar2map et gpxsolar : un hôte de confiance, proxy local par variable
+  d'environnement, `Sec-Fetch-Site`. Ni jeton, ni CSP, ni en-têtes.
+- watch2notif : le noyau seulement (Host, client, Origin). Ni `Sec-Fetch-Site`, ni
+  en-têtes.
+
+La version commune doit donc réunir : les hôtes et sous-réseaux de confiance et
+le journal de blink2video, `Sec-Fetch-Site` de lidar2map, et les gardes de
+chemin. Améliorations proposées, dans l'ordre où je les mettrais :
+
+1. Les trois en-têtes de blink2video sur toutes les réponses des quatre
+   applications : gratuit, aucune page ne change.
+2. Le jeton par processus en option de la classe de base, activé pour les
+   quatre : il protège des autres processus et des autres utilisateurs de la
+   machine, ce que Host, Origin et Sec-Fetch-Site ne font pas. Coût : la page
+   doit l'envoyer (un seul point à modifier, le `fetch` de `web_bridge.js`
+   chez lidar2map et gpxsolar), et `/api/init`, qui sert à repérer une
+   instance déjà lancée, reste ouverte.
+3. Un avertissement dans le journal quand un sous-réseau de confiance est plus
+   large qu'un /24, et une limite du débit du journal des refus (un client
+   insistant ne doit pas remplir le disque).
+
+### À clarifier : le démarrage automatique de lidar2map
+
+lidar2map a déjà un démarrage automatique (case dans la page, `_autostart.py`,
+service systemd, agent launchd, dossier Démarrage, migration des versions
+<= 1.53). Deux lectures de la décision 5 : ne pas l'étendre ni le partager
+(recommandé : le retirer casserait des installations, et `raccourci_bureau()`
+s'appuie sur sa commande), ou le retirer.
+
+### Ordre des vagues proposé
+
+1. Serveur commun complété (décision 1), écriture atomique, dossiers, puis
+   instance et port, langue, version de la page, colle du menu. Branchement de
+   gpxsolar, lidar2map, watch2notif, blink2video, bornes `<1`.
+2. `deploy.py` partagé (décision 9), et les workflows réutilisables si Nico les
+   retient.
+3. Démarrage automatique commun à blink2video et watch2notif, sur la base de
+   blink2video (corrige le guillemetage de watch2notif).
+4. Démarreur minimal du bootstrap (3.8), qui donne aussi le verrou au mode
+   sources de blink2video.
+5. Installation des mises à jour commune (3.9), précédée d'une note qui compare
+   les deux architectures ; offre la mise à jour automatique à lidar2map et
+   gpxsolar.
