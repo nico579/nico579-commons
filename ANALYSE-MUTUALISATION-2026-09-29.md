@@ -406,6 +406,28 @@ chemin. Améliorations proposées, dans l'ordre où je les mettrais :
   navigateur comme les trois autres. À corriger dans la première vague, sans
   quoi le bandeau s'y affiche d'abord en anglais.
 
+### Modèle et effort recommandés, vague par vague
+
+Avis de l'assistant du 2026-09-29, tiré de l'expérience du jour et non d'un
+comparatif mesuré. Critère : plus le code est dangereux et moins les tests le
+couvrent, plus il faut de modèle et d'effort.
+
+| Vague | Nature du travail | Modèle | Effort |
+|---|---|---|---|
+| 1 : atomique, dossiers, instance, langue, version de la page, colle du menu | Extractions guidées par des tests existants, comportement à conserver | Sonnet 5.5 | moyen |
+| 1 : serveur commun (jeton, en-têtes, CIDR) | Sécurité, peu de tests d'attaque déjà écrits | Opus 5.5 | élevé, ou Sonnet en élevé avec relecture par Opus |
+| 1 : bandeau de l'icône | Petit composant de page, à essayer dans le navigateur | Sonnet 5.5 | moyen |
+| 2 : `deploy.py` partagé | Outillage de publication, essais à blanc possibles | Sonnet 5.5 | moyen à élevé |
+| 3 : démarrage automatique commun | systemd, launchd, Windows : beaucoup de cas limites | Opus 5.5 | élevé |
+| 4 : démarreur du bootstrap | Chemin de démarrage de chaque lancement, trois systèmes | Opus 5.5 | élevé |
+| 5 : installation des mises à jour | Un défaut peut rendre une installation inutilisable | Opus 5.5 ou Fable 5.1 | maximal, après une note de conception |
+
+Haiku 4.5 : mises à jour de documentation seulement, aucun code de ces
+bibliothèques. Engagement de l'assistant : en début de vague, dire si le modèle
+et l'effort en cours conviennent à sa nature, et alerter en cours de route si
+une difficulté (test qui ne couvre pas le comportement, cas limite inattendu,
+risque de sécurité) demande plus.
+
 ### Ordre des vagues proposé
 
 1. Serveur commun complété (décision 1), écriture atomique, dossiers, puis
