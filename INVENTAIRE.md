@@ -19,7 +19,7 @@ dépôts (relevé par thèmes, puis comparaison des fonctions de chaque copie).
 | 7 | Démarrage automatique | lidar2map _autostart.py (252) ≈ watch2notif autostart_manager.py (217) ; blink2video autostart.py (682), le plus éprouvé (service systemd, issue #35) ; gpxsolar aucun | lidar2map, enrichi de blink2video | à reprendre |
 | 8 | Environnement des programmes lancés (LD_LIBRARY_PATH) | blink2video runtime.py ; lidar2map _bootstrap_runtime.py ; gpxsolar _installation.py ; trois copies identiques | lidar2map | module `environnement` (0.3.0) ; watch2notif branché (branche), le trou est comblé. lidar2map et gpxsolar gardent leur copie : elle tourne avant que leur bootstrap ait installé les dépendances, bibliothèque comprise (à revoir avec la brique 10) |
 | 9 | Instance, port, relance | lidar2map = gpxsolar (_instance_existante, _port_libre, _premier_port_libre, _commande_relance, _relancer_process) ; watch2notif single_instance.py (verrou, pas de relance) ; blink2video, serveur unique | lidar2map, complété de systemd et launchd | module `relance` (0.3.0), éprouvé en CI sous un vrai service systemd ; watch2notif, lidar2map et gpxsolar branchés (branches) ; instance et port restent à reprendre |
-| 10 | Dépendances : déclaration, installation, verrou | lidar2map _bootstrap_runtime.py (872) : quatre listes codées en dur, qui divergent, plus deux listes pip dans la CI ; gpxsolar : une liste dans gpxsolar.py, plus deux dans la CI ; blink2video requirements-build.in/.txt (pip-tools, empreintes) ; watch2notif requirements.txt figé | watch2notif, avec un verrou universel | voir « Dépendances » plus bas ; question de Nico du 2026-09-29 |
+| 10 | Dépendances : déclaration, installation, verrou | lidar2map _bootstrap_runtime.py (899 lignes) : quatre listes codées en dur, qui divergent, plus deux listes pip dans la CI ; gpxsolar : une liste dans gpxsolar.py, plus deux dans la CI ; blink2video requirements.in/.txt (pip-compile, empreintes, complété à la main) ; watch2notif requirements.txt figé, sans empreintes | blink2video pour le format, uv pour l'outil | fait pour lidar2map (branche feat/dependances, CI verte, non publiée) ; gpxsolar et blink2video à faire ; voir « Dépendances » plus bas |
 | 11 | Page : pont window.api, parcours de dossiers, fenêtre d'instance | lidar2map = gpxsolar (web_bridge.js, browse-dir) | lidar2map | à reprendre (fichiers statiques du paquet) |
 | 12 | Outillage de publication | deploy.py : blink2video (375), lidar2map (394), gpxsolar (410) ; exe_smoke : lidar2map, gpxsolar ; specs : VERSIONINFO, crochet certifi ; release.yml : corps de release et SHA-256 | à définir | workflows réutilisables (workflow_call) et scripts partagés |
 | 13 | Installation des mises à jour | blink2video maj.py (1381) ; watch2notif self_update.py (1079) | à définir | le plus gros doublon, et le plus délicat (vérification des archives, systemd, launchd) : en dernier |
@@ -82,20 +82,48 @@ Nico.
 
 Question de Nico (2026-09-29) : peut-on simplifier la gestion des
 dépendances de lidar2map ? Oui. Constat, en y ajoutant nico579-commons :
-quatre listes codées en dur dans _bootstrap_runtime.py, qui divergent déjà
-(platformdirs manque à l'une, pystray et platformdirs au contrôle du mode
-none), plus deux listes pip dans la CI, et aucune version figée : deux
-constructions du même commit à un mois d'écart n'embarquent pas les mêmes
+quatre listes codées en dur dans _bootstrap_runtime.py, qui divergeaient
+déjà (platformdirs manquait à l'une, pystray et platformdirs au contrôle du
+mode none), plus deux listes pip dans la CI, et aucune version figée : deux
+constructions du même commit à un mois d'écart n'embarquaient pas les mêmes
 bibliothèques. gpxsolar a le même schéma, en plus simple.
 
-Cible, le standard d'aujourd'hui et déjà le modèle de watch2notif : les
-dépendances directes déclarées une fois (requirements.in ou
-pyproject.toml), verrouillées dans un requirements.txt avec empreintes par
-`uv pip compile --universal`, un seul verrou valable pour les trois
-systèmes (ce que pip-compile ne sait pas faire depuis Windows, écueil vécu
-sur blink2video). Construction, CI et mode sources installent ce seul
-fichier ; le bootstrap se réduit à créer le venv et à lancer cette
-commande. Gros du travail : reprendre _test_bootstrap.py.
+Choix : le format de blink2video, l'outil en moins. Les dépendances directes
+sont déclarées une fois (requirements.in, noms seuls), verrouillées dans un
+requirements.txt avec version exacte et empreinte SHA-256 de chaque paquet,
+plus une variante -build qui ajoute PyInstaller. Ce format est le plus
+répandu et le plus lisible pour un projet de ce genre, et le pip d'un Python
+nu l'installe : le bootstrap n'a pas besoin d'un outil de plus. Mais le
+verrou de lidar2map est généré par `uv pip compile --universal`, pas par
+pip-compile : celui-ci résout pour la machine où il tourne, et depuis
+Windows il perd les paquets propres à macOS et Linux, d'où les entrées que
+blink2video complète à la main dans son verrou. uv produit en un passage un
+seul fichier valable partout, dans le même format ; blink2video pourra donc
+y passer sans changer ses fichiers ni ses workflows. Écartés : `uv lock`
+(uv.lock, pyproject), plus puissant mais qui exige uv au moment d'installer,
+alors que le bootstrap tourne dans un Python nu ; Poetry ou PDM, plus lourds
+que le besoin.
+
+Fait pour lidar2map (branche feat/dependances, CI verte sur les trois
+systèmes, non publiée) : 83 paquets verrouillés, _bootstrap_runtime.py de
+899 à 674 lignes, le venv du mode sources réinstallé quand le verrou change,
+un job de CI qui vérifie que les deux verrous s'installent en roues seules
+pour les quatre systèmes de construction de release. Essayé pour de vrai :
+bootstrap dans un dossier personnel redirigé, puis les deux suites de tests
+complètes dans le venv ainsi installé, et un mini-build PyInstaller qui
+embarque la bibliothèque et pystray depuis ce venv. Trois conséquences :
+
+- l'installation est tout ou rien : un paquet sans roue pour la version de
+  Python employée bloque tout, alors que osmium et numba, facultatifs,
+  étaient laissés de côté. La CI garantit les roues pour Python 3.12 ;
+- `--bootstrap=pip` installe le verrou dans l'environnement courant, quitte
+  à changer la version de paquets déjà installés ;
+- les Mac Intel gardent la dernière pile qui a des roues (numba 0.60,
+  llvmlite 0.43, numpy 2.0), portée par un marqueur de requirements.in ; le
+  filtre CSF y est compilé depuis ses sources, comme avant.
+
+Reste : gpxsolar (même travail, son bootstrap est dans gpxsolar.py), puis
+blink2video (passage de pip-compile à uv, ses blocs à la main disparaissent).
 
 ## Ordre proposé
 
@@ -103,8 +131,7 @@ commande. Gros du travail : reprendre _test_bootstrap.py.
    fait sur branches, à publier.
 2. Brique 8 (petite, et elle comble le trou de watch2notif) : fait pour
    watch2notif.
-3. Brique 10 pour lidar2map et gpxsolar : un verrou unique, le bootstrap
-   réduit à l'installer.
+3. Brique 10 : fait pour lidar2map ; gpxsolar, puis blink2video (uv).
 4. Briques 4, 5, 6 et 9 : lidar2map et gpxsolar en ont des copies presque
    identiques, le gain est immédiat ; watch2notif ensuite.
 5. Brique 11, puis 7.
