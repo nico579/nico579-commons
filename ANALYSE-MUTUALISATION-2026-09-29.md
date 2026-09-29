@@ -1,8 +1,9 @@
 # Mutualisation des quatre projets : analyse et propositions
 
 Rapport du 2026-09-29, demandé par Nico : « une analyse complète que tu me
-proposes, je déciderai des priorités ». Aucune décision n'est prise ici ; les
-choix à faire sont réunis au § 7.
+proposes, je déciderai des priorités ». Les choix à faire étaient réunis au § 7 ;
+les décisions de Nico et le plan qui en découle sont au § 9, revu le même jour
+(sécurité corrigée, pièges vérifiés dans le code, second tableau modèle/effort).
 
 ## 0. En bref
 
@@ -95,7 +96,7 @@ Tailles : S (une demi-journée), M (une journée), L (plusieurs jours), XL
 - Copies : l2m `_atomic_files.py` 200 lignes ⊃ gpx 124 (quatre fonctions
   identiques : `lire_json`, `remplacer`, `verrou_inter_processus`,
   `chemin_part`) ; `ecrire_json` recopié dans les deux `_dossiers.py` ; w2n
-  `json_store.py` 88 lignes (verrou par fil en plus) ; b2v écrit
+  `json_store.py` 88 lignes (verrou par fil en plus, refus d'un JSON corrompu pour sa configuration et ses états : à conserver, § 9) ; b2v écrit
   autrement (`runtime`, `merge_daily`).
 - Gain : environ 150 lignes, et une seule implémentation des pièges déjà payés
   (refus Windows passager, BOM, fichier corrompu qui efface l'historique).
@@ -109,7 +110,7 @@ Tailles : S (une demi-journée), M (une journée), L (plusieurs jours), XL
   66 ; b2v `runtime.py` (mêmes noms de fonctions, corps différents).
 - Gain : environ 250 lignes. `Dossiers(application, ...)` fait des constantes
   ses paramètres.
-- Risque : faible pour l2m et gpx, à surveiller pour b2v : ce sont les chemins
+- Risque : faible pour gpx ; pour l2m, l'import avant le bootstrap (§ 9) ; à surveiller pour b2v : ce sont les chemins
   de la production de l'utilisateur. Je proposerais de ne pas y toucher sans
   test qui prouve les mêmes chemins.
 
@@ -247,7 +248,7 @@ Tailles : S (une demi-journée), M (une journée), L (plusieurs jours), XL
 ## 5. Contraintes transversales
 
 - Le mode sources : la bibliothèque n'existe qu'après le bootstrap. Un module
-  utilisé plus tôt ne peut pas y vivre (d'où le démarreur du § 3.8).
+  utilisé plus tôt ne peut pas y vivre (d'où le démarreur du § 3.8 ; cas concret vérifié dans lidar2map, § 9).
 - PyInstaller : les imports doivent rester détectables ; les imports
   paresseux demandent un `hiddenimports`.
 - Python 3.8 : l'édition Windows 7 de b2v. La CI de la bibliothèque le teste
@@ -339,33 +340,60 @@ avant que Nico le décide.
 
 ### Sécurité du serveur : « le meilleur, et à améliorer »
 
-Mesure faite pour la décision 1 (2026-09-29). Ce que chaque application a :
+Mesure faite pour la décision 1 (2026-09-29), corrigée le même jour après
+vérification dans le code (second avis). Ce que chaque application a :
 
 - blink2video : plusieurs hôtes de confiance et sous-réseaux CIDR ; journal des
-  accès refusés ; jeton par processus exigé sur l'API (`X-Blink-Token`) ;
-  en-têtes `Content-Security-Policy` (dont `frame-ancestors`),
-  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`. Pas de
-  contrôle `Sec-Fetch-Site` (le jeton en tient lieu).
+  accès refusés ; jeton par processus exigé sur les requêtes qui changent
+  quelque chose (en-tête `X-Blink-Token`, ou `?token=` dans l'URL des médias) ;
+  en-têtes `Content-Security-Policy` (scripts limités par un nonce,
+  `frame-ancestors`), `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`.
+  Pas de contrôle `Sec-Fetch-Site`.
 - lidar2map et gpxsolar : un hôte de confiance, proxy local par variable
   d'environnement, `Sec-Fetch-Site`. Ni jeton, ni CSP, ni en-têtes.
 - watch2notif : le noyau seulement (Host, client, Origin). Ni `Sec-Fetch-Site`, ni
   en-têtes.
 
-La version commune doit donc réunir : les hôtes et sous-réseaux de confiance et
-le journal de blink2video, `Sec-Fetch-Site` de lidar2map, et les gardes de
-chemin. Améliorations proposées, dans l'ordre où je les mettrais :
+La version commune réunit les hôtes et sous-réseaux de confiance et le journal
+de blink2video, `Sec-Fetch-Site` de lidar2map, et les gardes de chemin.
+Améliorations proposées, dans l'ordre où je les mettrais :
 
-1. Les trois en-têtes de blink2video sur toutes les réponses des quatre
-   applications : gratuit, aucune page ne change.
-2. Le jeton par processus en option de la classe de base, activé pour les
-   quatre : il protège des autres processus et des autres utilisateurs de la
-   machine, ce que Host, Origin et Sec-Fetch-Site ne font pas. Coût : la page
-   doit l'envoyer (un seul point à modifier, le `fetch` de `web_bridge.js`
-   chez lidar2map et gpxsolar), et `/api/init`, qui sert à repérer une
-   instance déjà lancée, reste ouverte.
-3. Un avertissement dans le journal quand un sous-réseau de confiance est plus
+1. Sur toutes les réponses des quatre applications, les en-têtes qui ne
+   touchent pas aux scripts : `frame-ancestors`, `base-uri 'none'`,
+   `object-src 'none'`, `form-action 'self'`, `nosniff`, `Referrer-Policy`,
+   `Cross-Origin-Resource-Policy`. Aucune page ne change.
+2. La restriction des scripts, application par application. Une politique à
+   nonce comme celle de blink2video bloque tout gestionnaire écrit en attribut
+   (`onclick=`, `onchange=`...), dans le HTML comme dans les morceaux de HTML
+   que construit le JavaScript. lidar2map en a 64 (60 dans sa page, 4 dans
+   `app.js`), gpxsolar 21 (20 et 1), watch2notif aucun ; aucune des trois pages
+   n'emploie `eval`. watch2notif peut donc la recevoir telle quelle
+   (`script-src 'self'`). Pour lidar2map et gpxsolar, il faut d'abord remplacer
+   leurs 85 attributs par des écouteurs posés en JavaScript, comme blink2video
+   le fait déjà (`data-action`) : un chantier à décider à part. Les styles
+   écrits en attribut (213 chez lidar2map) restent admis, comme chez
+   blink2video (`style-src 'self' 'unsafe-inline'`).
+3. Le jeton par processus : à décider, pas acquis. Il ne protège pas des autres
+   programmes ni des autres utilisateurs de la machine : la page qui le porte
+   est servie à tout client qui passe le contrôle d'hôte, donc lisible par
+   n'importe quel programme local. Sa fonction, selon la documentation de
+   blink2video, est d'arrêter les requêtes venues d'autres sites et la
+   re-liaison DNS (un domaine extérieur qui pointe vers 127.0.0.1), ce que
+   Host, Origin et `Sec-Fetch-Site` couvrent déjà dans le serveur commun. Chez
+   lidar2map, gpxsolar et watch2notif, ce serait une défense de plus, modeste,
+   qui coûte des changements de page (le `fetch` de `web_bridge.js`, et les
+   adresses que la page ouvre sans lui) ; `/api/init`, qui sert à repérer une
+   instance déjà lancée, resterait ouverte.
+4. Un avertissement dans le journal quand un sous-réseau de confiance est plus
    large qu'un /24, et une limite du débit du journal des refus (un client
    insistant ne doit pas remplir le disque).
+
+La première version de cette section se trompait deux fois : elle disait les
+en-têtes de blink2video « gratuits, aucune page ne change » pour les quatre,
+ce qui est faux pour la restriction des scripts chez lidar2map et gpxsolar, et
+le jeton protecteur contre les autres processus de la machine, ce qui est faux
+(point 3).
 
 ### Précisions du même jour (démarrage automatique et icône du Bureau)
 
@@ -406,27 +434,65 @@ chemin. Améliorations proposées, dans l'ordre où je les mettrais :
   navigateur comme les trois autres. À corriger dans la première vague, sans
   quoi le bandeau s'y affiche d'abord en anglais.
 
+### Pièges vérifiés dans le code (second avis, 2026-09-29)
+
+Relevés en contestant le premier tableau de la section suivante ; aucun test
+actuel ne les verrait.
+
+- lidar2map importe `_atomic_files` et `_dossiers` avant son bootstrap (lignes
+  746 et 749 de `lidar2map.py`, bootstrap à la ligne 861). Les faire pointer
+  vers la bibliothèque casserait le premier lancement depuis les sources sur une
+  machine qui ne l'a pas encore : l'import échouerait avant que le bootstrap
+  puisse l'installer. La CI et les venvs de développement ont déjà la
+  bibliothèque. Remède : déplacer ces imports après le bootstrap (le fichier
+  principal ne s'en sert pas avant), et un test qui lance le programme dans un
+  venv vide et vérifie qu'il atteint le bootstrap, ce qui attrape aussi un
+  module chargé plus tôt qui les importerait.
+- watch2notif refuse un JSON corrompu pour sa configuration et ses états
+  (`json_store.read_json(..., tolerate_corrupt=False)`, `notifier.py` lignes
+  116 et 218) : l'erreur remonte, et l'utilisateur peut réparer le fichier à la
+  main. `atomique.lire_json` rend la valeur par défaut : une migration naïve
+  ferait passer un `config.json` abîmé pour vide, puis l'écraserait. `atomique`
+  doit offrir ce mode, ou watch2notif garder le sien.
+- La restriction des scripts de la CSP et la portée du jeton : section
+  « Sécurité du serveur » ci-dessus, corrigée.
+
 ### Modèle et effort recommandés, vague par vague
 
-Avis de l'assistant du 2026-09-29, tiré de l'expérience du jour et non d'un
-comparatif mesuré. Critère : plus le code est dangereux et moins les tests le
-couvrent, plus il faut de modèle et d'effort.
+Second avis du 2026-09-29 (Opus 5.5, effort maximal), qui remplace le premier
+tableau (Sonnet 5.5). Il n'est pas aveugle, le premier était sous ses yeux :
+seuls les écarts vérifiés dans le code ont été retenus. Les erreurs coûteuses
+de la journée furent des erreurs de conception (le choix de lidar2map comme
+référence du serveur, puis les points ci-dessus) ; les erreurs d'exécution (un
+retour chariot parasite, un import de `zoneinfo` sans repli) ont été
+rattrapées par les tests et la CI. D'où la règle : Opus écrit une courte note
+de conception vérifiée dans le code et relit les modifications à risque ;
+Sonnet code là où les tests protègent. C'est aussi le moins coûteux en quota.
 
-| Vague | Nature du travail | Modèle | Effort |
+| Vague | Conception | Exécution | Par rapport au premier tableau |
 |---|---|---|---|
-| 1 : atomique, dossiers, instance, langue, version de la page, colle du menu | Extractions guidées par des tests existants, comportement à conserver | Sonnet 5.5 | moyen |
-| 1 : serveur commun (jeton, en-têtes, CIDR) | Sécurité, peu de tests d'attaque déjà écrits | Opus 5.5 | élevé, ou Sonnet en élevé avec relecture par Opus |
-| 1 : bandeau de l'icône | Petit composant de page, à essayer dans le navigateur | Sonnet 5.5 | moyen |
-| 2 : `deploy.py` partagé | Outillage de publication, essais à blanc possibles | Sonnet 5.5 | moyen à élevé |
-| 3 : démarrage automatique commun | systemd, launchd, Windows : beaucoup de cas limites | Opus 5.5 | élevé |
-| 4 : démarreur du bootstrap | Chemin de démarrage de chaque lancement, trois systèmes | Opus 5.5 | élevé |
-| 5 : installation des mises à jour | Un défaut peut rendre une installation inutilisable | Opus 5.5 ou Fable 5.1 | maximal, après une note de conception |
+| 1, gpxsolar (atomique, dossiers, instance, langue, version de la page, colle du menu) | rien à concevoir | Sonnet `medium` | identique |
+| 1, lidar2map et watch2notif (mêmes briques) | liste de contrôle (pièges ci-dessus) | Sonnet `high`, test en venv vide | relevé : pièges cachés |
+| 1, blink2video (dossiers, chemins de production) | Opus `high` : un test qui fige les chemins, d'abord | Sonnet `high` | relevé |
+| 1, serveur commun | Opus `high` : note de sécurité vérifiée dans le code | Sonnet `high`, relecture Opus `high` | conception avant code |
+| 1, bandeau de l'icône | rien à concevoir | Sonnet `high` | relevé : ses fichiers JS et CSS doivent entrer dans les builds PyInstaller, tests sans le vrai Bureau |
+| 2, `deploy.py` partagé | rien à concevoir | Sonnet `high`, essais sur un dépôt local | à peu près identique |
+| 3, démarrage automatique (blink2video, watch2notif) | Opus `high` | Opus `high` | périmètre réduit par la décision 5 |
+| 3, retrait de celui de lidar2map | rien à concevoir | Sonnet `high` | nouveau |
+| 4, démarreur du bootstrap | Opus `high` | Opus `high` | identique |
+| 5, installation des mises à jour | Opus `max` : note comparant `maj.py` et `self_update.py`, plan de retour arrière | Opus `high`, relecture finale Opus `max` | Fable retiré |
 
-Haiku 4.5 : mises à jour de documentation seulement, aucun code de ces
-bibliothèques. Engagement de l'assistant : en début de vague, dire si le modèle
-et l'effort en cours conviennent à sa nature, et alerter en cours de route si
-une difficulté (test qui ne couvre pas le comportement, cas limite inattendu,
-risque de sécurité) demande plus.
+Réserves : l'auteur de ce tableau est Opus, donc suspect de préférer Opus ; ses
+corrections relèvent surtout l'effort de Sonnet et le laissent coder presque
+partout. La différence entre `high`, `xhigh` et `max` est un jugement, pas une
+mesure. Fable 5.1 n'est pas recommandé, faute de pouvoir le situer face à
+Opus 5.5 sur ce travail. Haiku 4.5 : aucune ligne. La tenue de ce rapport :
+Sonnet `medium`.
+
+Engagement de l'assistant : en début de vague, dire si le modèle et l'effort en
+cours conviennent à sa nature, et alerter en cours de route si une difficulté
+(test qui ne couvre pas le comportement, cas limite inattendu, risque de
+sécurité) demande plus.
 
 ### Ordre des vagues proposé
 
