@@ -509,3 +509,81 @@ sécurité) demande plus.
 5. Installation des mises à jour commune (3.9), précédée d'une note qui compare
    les deux architectures ; offre la mise à jour automatique à lidar2map et
    gpxsolar.
+
+## 10. Mise à jour du 2026-10-01 : état, faits nouveaux, ordre révisé
+
+### État
+
+La bibliothèque est à la 0.4.0 sur `main` (modules `atomique`, `dossiers` et
+`serveweb`, avec leurs tests), mais cette version n'est ni taguée ni publiée,
+et aucune application ne s'en sert : lidar2map, gpxsolar et watch2notif sont
+verrouillées sur la 0.3.1, blink2video sur la 0.3.2. La vague 1 est donc faite
+côté bibliothèque et pas branchée. `serveweb` porte le contrôle d'hôte,
+`Sec-Fetch-Site` et la gestion des routes ; les améliorations de la décision 1
+(en-têtes de sécurité partout, jeton optionnel, avertissement au-delà d'un /24,
+journal des refus à débit limité) restent à vérifier au début de la vague, rien
+ne permet de les affirmer faites.
+
+### Faits nouveaux qui touchent le plan
+
+1. **Icône de zone de notification sous GNOME Wayland** (essai de Nico dans sa
+   VM Ubuntu 26.04, 2026-10-01). Le paquet Linux affiche l'icône, le clic gauche
+   ouvre la page, le clic droit n'ouvre aucun menu : le paquet n'a pas `gi`,
+   pystray retombe sur son mode X11 (XEmbed), dont le menu est une fenêtre X11
+   que Wayland n'ouvre pas, et blink2video n'est pas enregistré auprès de
+   l'hôte StatusNotifierItem pourtant actif. Même avec le Python du système, le
+   mode AppIndicator échouerait sur une Ubuntu standard (typelib
+   `gir1.2-ayatanaappindicator3-0.1` absent). Décision de Nico : parler
+   directement le protocole StatusNotifierItem, avec une petite bibliothèque
+   D-Bus en Python pur, dans `nico579_commons.tray`, au profit des quatre
+   applications. Rattaché à la vague « colle du menu d'icône » (3.13). Détail
+   dans `BACKLOG.md` de blink2video.
+2. **`deploy.py` partagé (vague 2) : le flux de publication a changé.** Le
+   classifieur d'autorisation refuse tout push vers `main` fait par l'assistant
+   (« Merge Without Review »), y compris sur demande explicite, et Nico fusionne
+   par le bouton « Rebase and merge » de GitHub, souvent à distance. Un
+   `deploy.py` qui pousse puis tague est donc faux pour ce flux. À concevoir :
+   préparer la branche et la PR, donner les deux voies de fusion (commande `!`
+   et lien GitHub), puis, après la fusion, vérifier l'égalité des arbres (le
+   bouton recrée les commits : nouveaux SHA, même contenu), contrôler que
+   `VERSION` est celle attendue, tagger le nouveau sommet de `main`, vérifier le
+   SHA distant du tag et suivre la release. La relance d'une CI tombée sur un
+   incident réseau (PyPI inaccessible, 2026-10-01) se demande avant.
+3. **Presque tous les correctifs de la semaine étaient propres à blink2video**
+   (PID recyclés pour le verrou et l'arrêt, noms de caméras accentués, règle de
+   `ffprobe`) : la mutualisation n'y aurait rien changé. Elle réduit la dérive
+   entre jumeaux et le coût de chaque correctif futur, pas les bugs du jour.
+   D'où : la faire par petits morceaux, sans urgence, après les issues.
+4. **Règle à reporter dans les listes de contrôle de la vague 3 (démarrage
+   automatique) et de la vague 4 (démarreur)** : « identité de processus
+   illisible = PID recyclé » est répétée à plusieurs endroits de blink2video
+   (verrou, arrêt, fiches d'instance, nettoyage). Les balayer tous avant de les
+   mutualiser, et ne pas hériter de l'ancienne règle « on ne sait pas, on
+   garde ».
+
+### Ordre révisé (décision de Nico, 2026-10-01 : la mutualisation après les issues)
+
+D'abord, par ordre de coût croissant, les chantiers déjà promis aux issues :
+
+1. Le vrai clip USB neutre pour la CI, avec son test (issue #49).
+2. Le FFmpeg du paquet Linux figé (version et SHA-256) (issue #49).
+3. Les codages de confort de l'issue #40 : tri des caméras, taille des images,
+   masquer des caméras, puis webhooks d'état et d'armement avec un secret
+   unique.
+
+Ensuite seulement, la mutualisation :
+
+4. Vague 1, **gpxsolar d'abord** (atomique, dossiers, instance, langue, version
+   de la page, colle du menu) : rien à concevoir, Sonnet 5.5 `medium`, et elle
+   valide la bibliothèque en vrai avant d'y engager les autres.
+5. Vague 1, lidar2map et watch2notif avec les listes de contrôle (pièges
+   d'import avant le bootstrap, JSON corrompu refusé), puis blink2video en
+   dernier : ses chemins sont la production de Nico.
+6. Le reste dans l'ordre du § 9 (serveur commun complété, bandeau de l'icône du
+   Bureau, `deploy.py` selon le point 2 ci-dessus, démarrage automatique,
+   démarreur, installation des mises à jour), avec l'icône StatusNotifierItem
+   dans la vague de la colle du menu.
+
+Alerte à ne pas oublier au début de la vague gpxsolar : le tableau dit Sonnet
+5.5 `medium` ; une session en Opus coûterait davantage de quota sans bénéfice,
+changer de modèle avec `/model` avant de commencer.
