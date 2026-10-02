@@ -587,3 +587,40 @@ Ensuite seulement, la mutualisation :
 Alerte à ne pas oublier au début de la vague gpxsolar : le tableau dit Sonnet
 5.5 `medium` ; une session en Opus coûterait davantage de quota sans bénéfice,
 changer de modèle avec `/model` avant de commencer.
+
+## 11. Piste à étudier plus tard : Electron pour les quatre applications
+
+Demande de Nico (2026-10-02) : étudier si Electron
+(https://www.electronjs.org/fr/) peut simplifier les quatre projets. Aucune
+étude n'est faite et rien n'est décidé. À traiter après la mutualisation
+(vagues 1 à 3), pas avant. Ce qu'il faudra établir :
+
+1. **Ce qu'il remplacerait.** Le serveur web local et le navigateur de
+   l'utilisateur (une vraie fenêtre d'application à la place), pystray et
+   `nico579_commons.tray` (icône et menu), le raccourci du Bureau et le démarrage
+   automatique (Electron sait ouvrir une session de démarrage), l'installateur
+   et la mise à jour (electron-builder, electron-updater, à comparer aux
+   `maj.py` et `self_update.py` actuels).
+2. **Ce qu'il ne remplace pas.** Le moteur Python (blinkpy, ffmpeg, aiortc, GPX,
+   LiDAR) reste : Electron ajouterait un second environnement d'exécution
+   (Node) à empaqueter et à superviser, avec un processus Python à côté.
+   Les usages sans écran ne s'y prêtent pas : blink2video sous systemd
+   (installation de Markus), image Docker, NAS. Le serveur web seul devrait
+   donc rester, et Electron ne serait au mieux qu'une coque de bureau
+   facultative par-dessus.
+3. **Ce que ça coûte.** La taille (Chromium et Node embarqués, de l'ordre de
+   plusieurs dizaines à quelques centaines de Mo par application : à mesurer),
+   à mettre en regard de la décision de gpxsolar, qui a quitté Qt pour passer
+   de 929 à 370 Mo ; le suivi des correctifs de sécurité de Chromium ; la
+   signature et la notarisation par plateforme.
+4. **Ce que ça pourrait apporter, à vérifier.** Une icône de zone de
+   notification identique partout, y compris sous GNOME Wayland (Electron
+   utiliserait StatusNotifierItem : à confirmer sur la version visée), une
+   fenêtre native, la mise à jour et le démarrage automatiques intégrés.
+5. **Concurrence avec ce qui est déjà décidé.** L'icône StatusNotifierItem en
+   Python pur (rapport § 10) et la mutualisation de l'installation des mises à
+   jour (vague 5) couvrent une grande part des gains attendus d'Electron : à
+   comparer coût contre coût avant de choisir.
+
+Principe de Nico à appliquer : rester dans ce qui se fait aujourd'hui dans
+l'écosystème (Electron l'est), sans ajouter une couche pour un seul usage.
