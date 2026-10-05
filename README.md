@@ -62,9 +62,15 @@ pip install "nico579-commons[tray]"  # plus pystray and Pillow, for the icon
 ```
 
 The package on its own requires nothing: only `tray` needs pystray and Pillow
-(the `tray` extra), and `tray.disponible()` says whether they, and a
-notification area, are there. An app that lists them itself does not need the
-extra.
+(the `tray` extra, plus jeepney on Linux), and `tray.disponible()` says whether
+they, and a notification area, are there. An app that lists them itself does not
+need the extra.
+
+On Linux, when the desktop offers a StatusNotifierItem host (GNOME with the
+AppIndicator extension, as on Ubuntu; KDE Plasma), the icon talks that protocol
+directly over D-Bus (`nico579_commons.tray_sni`, pure Python with jeepney, no GTK
+or PyGObject), because pystray's X11 fallback shows the icon under Wayland but
+opens no menu. Elsewhere pystray is used as before.
 
 ## Use
 
