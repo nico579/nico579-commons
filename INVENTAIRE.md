@@ -150,6 +150,17 @@ imposées aux installations depuis les sources et à l'image Docker, où
 l'icône est facultative. lidar2map, gpxsolar et watch2notif, qui listent déjà
 pystray et Pillow eux-mêmes, n'ont rien à changer.
 
+0.4.0 (2026-10-05) : modules `atomique`, `dossiers` et `serveweb` (briques 4, 5
+et 6), et l'icône StatusNotifierItem (`tray_sni`). Sous GNOME Wayland, pystray
+retombait sur son mode X11 : l'icône s'affichait mais le clic droit n'ouvrait
+aucun menu. `tray.Tray` parle maintenant directement le protocole
+StatusNotifierItem et dbusmenu sur le bus de session (jeepney, en Python pur,
+extra `tray` sous Linux) quand un hôte est présent, et garde pystray sinon.
+Vérifié sur un vrai bus D-Bus (CI) et sous un vrai GNOME Shell 50.1 avec
+l'extension AppIndicator d'Ubuntu (VM Ubuntu 26.04) : l'icône s'inscrit et
+l'hôte lit son menu sans erreur. Reste à voir, dans une session ouverte, que
+l'icône s'affiche et que le clic droit ouvre le menu.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
