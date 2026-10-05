@@ -41,12 +41,34 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+      # jeepney et Pillow : les tests de l'icône StatusNotifierItem (protocole,
+      # sans bus) tournent partout ; sans eux ils seraient sautés.
+      - name: Dépendances de l'extra tray pour les tests
+        run: python -m pip install --quiet jeepney Pillow
       - name: Tests
         run: python -m unittest discover -s tests -v
       - name: Construction du paquet
         run: |
           python -m pip install --quiet build
           python -m build
+
+  statusnotifier:
+    name: Icône StatusNotifierItem sur un vrai bus D-Bus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet jeepney Pillow
+      # dbus-run-session ouvre un bus de session jetable : l'icône s'y inscrit
+      # auprès d'un faux watcher et répond à un faux hôte, comme le ferait
+      # GNOME. Ce que la barre du bureau affiche reste à voir sur un vrai
+      # poste (essai manuel dans une session GNOME).
+      - name: Dialogue avec un watcher et un hôte
+        run: |
+          sudo apt-get install --yes --no-install-recommends dbus
+          dbus-run-session -- python -m unittest tests.test_tray_sni_bus tests.test_tray_sni -v
 
   systemd:
     name: Relance sous un vrai service systemd

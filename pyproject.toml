@@ -21,7 +21,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-tray = ["pystray>=0.19", "Pillow"]
+# jeepney : bibliothèque D-Bus en Python pur, pour l'icône StatusNotifierItem
+# (GNOME Wayland, KDE) que pystray n'ouvre pas sans GTK ; Linux seulement.
+tray = ["pystray>=0.19", "Pillow", "jeepney>=0.8; sys_platform == 'linux'"]
 
 [project.urls]
 Source = "https://github.com/nico579/nico579-commons"

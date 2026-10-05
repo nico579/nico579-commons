@@ -24,6 +24,7 @@ appris à leurs dépens, repris du tray.py de blink2video :
 
 from __future__ import annotations
 
+import functools
 import sys
 import threading
 from dataclasses import dataclass
@@ -70,13 +71,33 @@ class Actions:
     mettre_a_jour_referme: bool = True
 
 
+@functools.lru_cache(maxsize=1)
+def _par_statusnotifier() -> bool:
+    """Vrai sous Linux quand un hôte StatusNotifierItem est présent (GNOME avec
+    l'extension AppIndicator, KDE...) : l'icône passe alors par ce protocole
+    (tray_sni) plutôt que par pystray, dont le mode X11 n'ouvre aucun menu sous
+    Wayland. Calculé une fois : l'attente éventuelle de l'hôte au démarrage
+    de la session ne se paie pas deux fois."""
+    try:
+        from . import tray_sni
+        return tray_sni.utilisable()
+    except Exception:
+        return False
+
+
 def disponible() -> bool:
-    """Faux si pystray ou Pillow ne se chargent pas : bibliothèque absente,
-    ou aucune zone de notification (Linux sans AppIndicator/GTK, session
-    sans affichage). L'application continue alors sans icône."""
+    """Faux si Pillow ne se charge pas, ou si aucune zone de notification n'est
+    employable : ni hôte StatusNotifierItem, ni pystray (bibliothèque absente,
+    Linux sans AppIndicator/GTK, session sans affichage). L'application
+    continue alors sans icône."""
+    try:
+        from PIL import Image  # noqa: F401
+    except Exception:
+        return False
+    if _par_statusnotifier():
+        return True
     try:
         import pystray  # noqa: F401
-        from PIL import Image  # noqa: F401
     except Exception:
         return False
     return True
@@ -152,7 +173,10 @@ class Tray:
     def construire(self, pystray=None, image=None):
         """L'objet pystray.Icon, sans le lancer (séparé pour les tests)."""
         if pystray is None:
-            import pystray
+            if _par_statusnotifier():
+                from .tray_sni import PYSTRAY_COMPATIBLE as pystray
+            else:
+                import pystray
         if image is None:
             from PIL import Image
             # Copie chargée, fichier refermé : Image.open seul le garde
