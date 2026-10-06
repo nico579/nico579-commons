@@ -639,6 +639,9 @@ def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None]
     """Démarre l'assistant, vérifie qu'il est prêt, puis rend la main à
     l'appelant, qui doit ensuite appeler valider() et se fermer."""
     _chemins_valides(prep)
+    if any("|" in argument for argument in (*app.arguments_relance, *app.donnees_preservees)):
+        # « | » sépare les listes passées à l'assistant.
+        raise _echec("helper_failed", detail="argument de relance ou nom de donnée avec « | »")
     disp = prep.disposition
     pret = prep.staging_root / "helper.ready"
     feu_vert = prep.staging_root / "helper.go"
