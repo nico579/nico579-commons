@@ -148,6 +148,13 @@ class Maj(unittest.TestCase):
             {"name": "x.zip", "browser_download_url": "https://github.com/x.zip",
              "size": 10, "digest": "sha256:ab", "state": "uploaded"}])
 
+    def test_brouillon_et_preversion_ne_sont_jamais_proposes(self):
+        for champ in ("draft", "prerelease"):
+            with self.subTest(champ=champ):
+                v, _ = self.verificateur({"tag_name": "v9.9.9", champ: True})
+                self.assertFalse(v.verifier())
+                self.assertIsNone(v.disponible())
+
     def test_deja_a_jour(self):
         v, _ = self.verificateur({"tag_name": "v1.6.2"})
         self.assertTrue(v.verifier())

@@ -58,7 +58,9 @@ class Verificateur:
         try:
             release = self._ouvrir(f"https://api.github.com/repos/{self.depot}/releases/latest")
             version = str(release.get("tag_name") or "").lstrip("vV")
-            if not version:
+            # releases/latest ne renvoie jamais de brouillon ni de préversion ;
+            # une réponse qui en serait une n'annonce rien.
+            if not version or release.get("draft") or release.get("prerelease"):
                 return False
             page = str(release.get("html_url") or self.page_des_releases)
             # Les fichiers de la release, réduits à ce que vérifie un

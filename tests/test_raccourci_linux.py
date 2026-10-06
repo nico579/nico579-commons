@@ -58,7 +58,7 @@ def relire_exec(valeur: str) -> list:
 
 class ExecConforme(unittest.TestCase):
     def aller_retour(self, arguments):
-        ecrit = " ".join(raccourci.argument_exec(a) for a in arguments)
+        ecrit = " ".join(raccourci._argument_exec(a) for a in arguments)
         self.assertEqual(relire_exec(ecrit), arguments, ecrit)
         self.assertNotIn("sh -c", ecrit)
         return ecrit
@@ -75,13 +75,13 @@ class ExecConforme(unittest.TestCase):
                 self.aller_retour(["/opt/app", argument, "start"])
 
     def test_pourcent_litteral_est_double(self):
-        self.assertEqual(raccourci.argument_exec("a%b"), "a%%b")
+        self.assertEqual(raccourci._argument_exec("a%b"), "a%%b")
 
     def test_barre_inverse_litterale_s_ecrit_avec_quatre(self):
-        self.assertEqual(raccourci.argument_exec("a\\b"), '"a\\\\\\\\b"')
+        self.assertEqual(raccourci._argument_exec("a\\b"), '"a\\\\\\\\b"')
 
     def test_argument_vide_reste_un_argument(self):
-        self.assertEqual(raccourci.argument_exec(""), '""')
+        self.assertEqual(raccourci._argument_exec(""), '""')
         self.aller_retour(["/opt/app", "", "start"])
 
     def test_le_contenu_n_utilise_plus_sh_c(self):

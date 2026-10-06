@@ -161,6 +161,18 @@ l'extension AppIndicator d'Ubuntu (VM Ubuntu 26.04) : l'icône s'inscrit et
 l'hôte lit son menu sans erreur. Reste à voir, dans une session ouverte, que
 l'icône s'affiche et que le clic droit ouvre le menu.
 
+0.4.1 (2026-10-06) : le commun couvre maintenant ce que faisaient les copies des projets,
+sans nouvelle fonction publique : `atomique.lire_json(..., tolerer_corrompu=)` et
+`atomique.ecrire_json(..., indent=)` (watch2notif lit sa config sans la remplacer
+quand elle est corrompue, et écrit ses états en JSON compact), `maj.Verificateur`
+conserve les fichiers de la release (nom, URL, taille, empreinte, état) et écarte
+brouillons et préversions, `Dossiers.copier_si_absent` copie aussi un dossier.
+Raccourci Linux corrigé : Bureau lu dans XDG_DESKTOP_DIR, Exec conforme à la
+spécification Desktop Entry (sans `sh -c`), fichier marqué de confiance
+(`gio set metadata::trusted true`) pour que GNOME ne le déclare plus
+« Untrusted Desktop File ». Branché sur gpxsolar, lidar2map et watch2notif,
+qui perdent leurs copies locales.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
