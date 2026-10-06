@@ -151,7 +151,10 @@ class Disposition(Base):
 def zip_bundle(version: str, *, avec_donnee=False, sans_internal=False) -> bytes:
     tampon = io.BytesIO()
     with zipfile.ZipFile(tampon, "w") as z:
-        z.writestr("exemple/exemple", f"{version}".encode())
+        programme = zipfile.ZipInfo("exemple/exemple")
+        programme.create_system = 3
+        programme.external_attr = (stat.S_IFREG | 0o755) << 16   # exécutable sous Linux et macOS
+        z.writestr(programme, f"{version}".encode())
         if not sans_internal:
             z.writestr("exemple/_internal/lib.dat", b"lib")
         if avec_donnee:
