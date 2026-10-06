@@ -181,6 +181,18 @@ class CreationLinux(unittest.TestCase):
             self.assertEqual(self.creer(), 0)
         self.assertTrue((self.accueil / "Desktop" / "monapp.desktop").is_file())
 
+    def test_echec_d_ecriture_est_signale_et_non_leve(self):
+        with mock.patch.object(Path, "write_text", side_effect=OSError("lecture seule")):
+            self.assertEqual(self.creer(), 1)
+        self.assertIn("lecture seule", self.messages[-1])
+        self.assertEqual(self.commandes, [])   # rien à marquer de confiance
+
+    def test_simulation_n_ecrit_rien(self):
+        self.assertEqual(self.creer(simulation=True), 0)
+        self.assertFalse((self.accueil / "Desktop").exists())
+        self.assertEqual(self.commandes, [])
+        self.assertIn("Exec=", self.messages[-1])
+
 
 if __name__ == "__main__":
     unittest.main()

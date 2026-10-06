@@ -227,9 +227,15 @@ def _linux(nom, commande, dossier, icone, terminal, simulation, langue, dossier_
     if simulation:
         ecrire(_texte(langue, "creerait", cible=cible, detail="\n" + contenu))
         return 0
-    cible.parent.mkdir(parents=True, exist_ok=True)
-    cible.write_text(contenu, encoding="utf-8")
-    cible.chmod(0o755)
+    try:
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        cible.write_text(contenu, encoding="utf-8")
+        cible.chmod(0o755)
+    except OSError as erreur:
+        # Bureau en lecture seule, disque plein : un code de retour, pas une
+        # exception qui traverserait l'appelant (menu de l'icône, CLI).
+        ecrire(_texte(langue, "echec", detail=str(erreur)))
+        return 1
     # GNOME/Nautilus refuse de lancer un .desktop du Bureau tant qu'il n'est
     # pas marqué « de confiance » ; KDE et XFCE ignorent cet attribut. La
     # valeur est la chaîne « true », pas « yes » : Nautilus et DING (les icônes
