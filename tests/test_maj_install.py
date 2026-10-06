@@ -256,6 +256,16 @@ class Preparation(Base):
         finally:
             mi.nettoyer(prep)
 
+    def test_arguments_de_relance_avec_le_separateur_refuses(self):
+        prep = self.preparer(zip_bundle("9.0.0"))
+        try:
+            app = mi.Application("exemple", arguments_relance=("--a|b",))
+            with self.assertRaises(maj_archive.ErreurMiseAJour) as c:
+                mi.lancer(app, prep, ecrire=lambda *_: None)
+            self.assertEqual(c.exception.code, "helper_failed")
+        finally:
+            mi.nettoyer(prep)
+
     def test_annuler_pose_le_marqueur(self):
         prep = self.preparer(zip_bundle("9.0.0"))
         try:

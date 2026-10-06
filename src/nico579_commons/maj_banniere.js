@@ -26,12 +26,16 @@
     div.id = 'nico579-maj';
     div.setAttribute('role', 'status');
     var sombre = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // Discret : une pastille centrée en haut, qui ne recouvre ni l'en-tête
+    // ni les réglages de langue qu'une page place volontiers dans un coin.
     style(div, {
-      position: 'fixed', top: '0', left: '0', right: '0', zIndex: '2147483000',
-      display: 'none', alignItems: 'center', justifyContent: 'center', gap: '12px',
-      padding: '8px 16px', fontFamily: 'system-ui, sans-serif', fontSize: '14px',
+      position: 'fixed', top: '8px', left: '50%', transform: 'translateX(-50%)',
+      zIndex: '2147483000', maxWidth: '92%', display: 'none', alignItems: 'center',
+      justifyContent: 'center', gap: '12px', padding: '6px 14px',
+      fontFamily: 'system-ui, sans-serif', fontSize: '13px', borderRadius: '6px',
       background: sombre ? '#1f3a5f' : '#e8f1fc', color: sombre ? '#eaf2ff' : '#12355b',
-      borderBottom: '1px solid ' + (sombre ? '#3b6aa5' : '#9bbbe4'), boxSizing: 'border-box'
+      border: '1px solid ' + (sombre ? '#3b6aa5' : '#9bbbe4'),
+      boxShadow: '0 2px 8px rgba(0,0,0,.35)', boxSizing: 'border-box'
     });
     document.body.appendChild(div);
     return div;
