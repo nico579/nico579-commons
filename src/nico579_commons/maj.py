@@ -61,16 +61,22 @@ class Verificateur:
             if not version:
                 return False
             page = str(release.get("html_url") or self.page_des_releases)
+            # Les fichiers de la release, réduits à ce que vérifie un
+            # installateur (nom, adresse, taille, empreinte, état) : l'appelant
+            # qui en a besoin (watch2notif) les lit ici, sans refaire la requête.
+            fichiers = [{cle: brut.get(cle) for cle in
+                         ("name", "browser_download_url", "size", "digest", "state")}
+                        for brut in release.get("assets") or [] if isinstance(brut, dict)]
         except Exception:
             return False
         with self._verrou:
-            self._derniere = {"version": version, "page": page}
+            self._derniere = {"version": version, "page": page, "assets": fichiers}
             self._verifie_a = time.time()
         return True
 
     def disponible(self) -> Optional[dict]:
-        """{"version", "page"} si une version plus récente est connue, sinon
-        None. Instantané : ne lit que la dernière réponse."""
+        """{"version", "page", "assets"} si une version plus récente est connue,
+        sinon None. Instantané : ne lit que la dernière réponse."""
         with self._verrou:
             derniere = self._derniere
         if derniere and numeros(derniere["version"]) > numeros(self.version_locale):

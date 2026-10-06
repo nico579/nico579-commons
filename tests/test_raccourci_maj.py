@@ -134,8 +134,19 @@ class Maj(unittest.TestCase):
                                        "html_url": "https://github.com/x/r/releases/tag/v1.6.3"})
         self.assertTrue(v.verifier())
         self.assertEqual(v.disponible(), {"version": "1.6.3",
-                                          "page": "https://github.com/x/r/releases/tag/v1.6.3"})
+                                          "page": "https://github.com/x/r/releases/tag/v1.6.3",
+                                          "assets": []})
         self.assertEqual(appels, ["https://api.github.com/repos/nico579/gpxsolar/releases/latest"])
+
+    def test_les_fichiers_de_la_release_sont_conserves_reduits(self):
+        v, _ = self.verificateur({"tag_name": "v1.6.3", "assets": [
+            {"name": "x.zip", "browser_download_url": "https://github.com/x.zip",
+             "size": 10, "digest": "sha256:ab", "state": "uploaded", "secret": "non"},
+            "pas un dict"]})
+        v.verifier()
+        self.assertEqual(v.disponible()["assets"], [
+            {"name": "x.zip", "browser_download_url": "https://github.com/x.zip",
+             "size": 10, "digest": "sha256:ab", "state": "uploaded"}])
 
     def test_deja_a_jour(self):
         v, _ = self.verificateur({"tag_name": "v1.6.2"})

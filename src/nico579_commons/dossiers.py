@@ -183,10 +183,19 @@ class Dossiers:
 
     @staticmethod
     def copier_si_absent(source: Path, cible: Path) -> bool:
-        """Copie atomique d'un fichier, sans jamais écraser la cible."""
-        if cible.exists() or not source.is_file():
+        """Copie atomique d'un fichier ou d'un dossier, sans jamais écraser la
+        cible."""
+        if cible.exists() or not (source.is_file() or source.is_dir()):
             return False
         cible.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            temporaire = atomique.chemin_part(cible)
+            try:
+                shutil.copytree(source, temporaire)
+                atomique.remplacer(temporaire, cible)
+            finally:
+                shutil.rmtree(temporaire, ignore_errors=True)
+            return True
         temporaire = atomique.chemin_part(cible)
         try:
             shutil.copy2(source, temporaire)

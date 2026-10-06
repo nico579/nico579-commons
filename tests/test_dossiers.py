@@ -225,6 +225,33 @@ class Reprise(Isole):
         self.assertEqual(cible.read_text(), "neuf")
         self.assertEqual([p.name for p in self.racine.iterdir() if p.suffix == ".part"], [])
 
+    def test_copier_si_absent_copie_un_dossier_entier_sans_ecraser(self):
+        source = self.ancien / "state"
+        (source / "sous").mkdir(parents=True)
+        (source / "a.json").write_text("1")
+        (source / "sous" / "b.json").write_text("2")
+        cible = self.racine / "etat" / "state"
+        self.assertTrue(Dossiers.copier_si_absent(source, cible))
+        self.assertEqual((cible / "sous" / "b.json").read_text(), "2")
+        (source / "a.json").write_text("autre")
+        self.assertFalse(Dossiers.copier_si_absent(source, cible))
+        self.assertEqual((cible / "a.json").read_text(), "1")
+        self.assertEqual([p.name for p in cible.parent.iterdir()], ["state"])
+
+    def test_source_absente_ne_cree_pas_le_dossier_de_destination(self):
+        cible = self.racine / "jamais" / "x.txt"
+        self.assertFalse(Dossiers.copier_si_absent(self.ancien / "absent", cible))
+        self.assertFalse(cible.parent.exists())
+
+    def test_reprise_d_un_dossier_d_etat(self):
+        d = Dossiers("w2n", nom_etat="w2n", fichiers_etat=("config.json", "state"))
+        (self.ancien / "config.json").write_text("{}")
+        (self.ancien / "state").mkdir()
+        (self.ancien / "state" / "f.json").write_text("[]")
+        repris = d.preparer_etat(self.ancien)
+        self.assertEqual(sorted(repris), ["config.json", "state"])
+        self.assertEqual((self.etat / "state" / "f.json").read_text(), "[]")
+
 
 if __name__ == "__main__":
     unittest.main()

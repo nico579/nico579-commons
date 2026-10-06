@@ -37,6 +37,16 @@ class LireJson(Base):
         fichier.write_text("{pas du json", encoding="utf-8")
         self.assertEqual(atomique.lire_json(fichier, []), [])
 
+    def test_corrompu_leve_si_la_tolerance_est_retiree(self):
+        # config.json de watch2notif : un fichier que l'utilisateur peut encore
+        # réparer à la main ne doit pas être remplacé en silence par le défaut.
+        fichier = self.dossier / "x.json"
+        fichier.write_text("{pas du json", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            atomique.lire_json(fichier, [], tolerer_corrompu=False)
+        self.assertEqual(atomique.lire_json(self.dossier / "absent.json", {"a": 1},
+                                            tolerer_corrompu=False), {"a": 1})
+
     def test_bom_utf8_accepte(self):
         # Bloc-notes et PowerShell 5.1 ajoutent un BOM : en utf-8 simple le
         # fichier passait pour corrompu et la réécriture suivante l'appauvrissait.
@@ -129,6 +139,13 @@ class EcrireJson(Base):
         self.assertEqual(json.loads(chemin.read_text(encoding="utf-8")), {"nom": "élève", "n": [1, 2]})
         self.assertIn("élève", chemin.read_text(encoding="utf-8"))   # ensure_ascii=False
         self.assertEqual([p.name for p in chemin.parent.iterdir()], ["x.json"])
+
+    def test_indent_none_ecrit_un_json_compact(self):
+        chemin = self.dossier / "x.json"
+        atomique.ecrire_json(chemin, {"a": [1, 2]}, indent=None)
+        self.assertEqual(chemin.read_text(encoding="utf-8"), '{"a": [1, 2]}')
+        atomique.ecrire_json(chemin, {"a": 1})
+        self.assertIn("\n", chemin.read_text(encoding="utf-8"))   # indent=2 par défaut
 
     def test_remplace_l_ancien_contenu(self):
         chemin = self.dossier / "x.json"
