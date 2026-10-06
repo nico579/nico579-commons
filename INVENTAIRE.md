@@ -208,6 +208,16 @@ refus de systemd rapportés au lieu d'être annoncés comme un succès, agent la
 migration du vieux .vbs. Dérive trouvée en comparant : watch2notif n'échappait ni
 les arguments systemd ni le XML de l'agent macOS.
 
+0.4.5 (2026-10-06) : `maj_install` gagne la seconde stratégie de remplacement, celle de
+blink2video : la NOUVELLE version, lancée depuis son dossier de préparation, arrête
+l'ancienne, copie ses fichiers un à un à la place des anciens (`permuter`) et relance
+(`finaliser`). Elle ne demande aucun droit sur le dossier parent, sait relancer plusieurs
+processus (l'application fournit `noter` et `relancer`), et un marqueur écrit avant la
+première modification permet de refuser de purger la seule sauvegarde après un arrêt
+brutal (`nettoyer_restes`, `RestaurationIncomplete`, `reservation` par verrou de l'OS).
+Tests repris de blink2video. Les deux stratégies (échange de dossier par assistant
+externe, copie élément par élément) partagent `preparer`.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
