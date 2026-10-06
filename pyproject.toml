@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nico579-commons"
-version = "0.4.2"
+version = "0.4.3"
 description = "Briques communes à blink2video, lidar2map, watch2notif et gpxsolar"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}

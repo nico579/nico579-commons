@@ -108,7 +108,14 @@ LIBELLES = {'fr': {'empreinte_url_etrangere': "URL d'empreinte étrangère à la
         'telechargement_echoue': 'Téléchargement impossible : {detail}',
         'archive_racine_inattendue': "Racine inattendue dans l'archive : {nom!r}",
         'archive_racine_invalide': "Racine du bundle invalide dans l'archive.",
-        'archive_illisible': 'Archive illisible ou corrompue : {detail}'},
+        'archive_illisible': 'Archive illisible ou corrompue : {detail}',
+        'source_mode': "La mise à jour automatique n'existe que pour le programme installé, pas depuis les sources.",
+        'unsupported_target': 'Système non pris en charge pour la mise à jour automatique : {cible}.',
+        'unsafe_install': 'Installation impossible à remplacer en sécurité : {detail}',
+        'invalid_payload': 'Version téléchargée invalide : {detail}',
+        'prepare_failed': 'Préparation de la mise à jour impossible : {detail}',
+        'helper_failed': "L'assistant de mise à jour a échoué : {detail}",
+        'version_absente': 'Version absente de la release.'},
  'en': {'empreinte_url_etrangere': 'Checksum URL foreign to the official release.',
         'empreinte_redirection': 'The checksum redirect leaves GitHub or HTTPS.',
         'empreinte_taille_http_invalide': 'Invalid checksum HTTP size.',
@@ -155,7 +162,14 @@ LIBELLES = {'fr': {'empreinte_url_etrangere': "URL d'empreinte étrangère à la
         'telechargement_echoue': 'Download failed: {detail}',
         'archive_racine_inattendue': 'Unexpected root in the archive: {nom!r}',
         'archive_racine_invalide': 'Invalid bundle root in the archive.',
-        'archive_illisible': 'Unreadable or corrupted archive: {detail}'}}
+        'archive_illisible': 'Unreadable or corrupted archive: {detail}',
+        'source_mode': 'Automatic update only exists for the installed program, not from sources.',
+        'unsupported_target': 'System not supported for automatic update: {cible}.',
+        'unsafe_install': 'Installation cannot be replaced safely: {detail}',
+        'invalid_payload': 'Invalid downloaded version: {detail}',
+        'prepare_failed': 'Update preparation failed: {detail}',
+        'helper_failed': 'The update helper failed: {detail}',
+        'version_absente': 'Version missing from the release.'}}
 
 CATEGORIES = {
     "asset_absent": "invalid_asset",
@@ -173,6 +187,13 @@ CATEGORIES = {
     "archive_tronquee": "integrity_failed",
     "archive_empreinte_incorrecte": "integrity_failed",
     "telechargement_echoue": "download_failed",
+    "version_absente": "invalid_asset",
+    "source_mode": "source_mode",
+    "unsupported_target": "unsupported_target",
+    "unsafe_install": "unsafe_install",
+    "invalid_payload": "invalid_payload",
+    "prepare_failed": "prepare_failed",
+    "helper_failed": "helper_failed",
 }
 
 

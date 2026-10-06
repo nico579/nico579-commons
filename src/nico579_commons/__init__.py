@@ -8,4 +8,4 @@ verrou entre processus ; dossiers : état et sorties, reprise d'un ancien
 requêtes). L'inventaire et le suivi du chantier : INVENTAIRE.md.
 """
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
