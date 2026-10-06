@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import urllib.parse
 import urllib.request
 import uuid
@@ -755,3 +756,103 @@ def annuler(prep: Preparation) -> None:
         (prep.staging_root / "helper.abort").touch(exist_ok=True)
     except OSError:
         pass
+
+
+class Installateur:
+    """Conduit une installation de bout en bout dans un fil de fond et en tient
+    l'état à jour, pour que le menu de l'icône et la page de l'application
+    (qui l'interrogent par etat()) n'aient rien d'autre à faire : un bouton
+    appelle demarrer(), un sondage lit etat().
+
+    Séquence, la même pour toutes les applications : rafraîchir la release,
+    préparer (téléchargement, extraction, contrôles), lancer l'assistant,
+    lui donner le feu vert, puis appeler `quitter()` (l'application s'arrête
+    proprement : l'assistant échange alors les dossiers et relance la nouvelle
+    version). À chaque étape qui échoue, ce qui avait été préparé est nettoyé,
+    l'état passe à « erreur » et l'application continue de tourner.
+
+    États : inactif, telechargement, redemarrage, erreur."""
+
+    def __init__(self, app: Application, depot: str, verificateur,
+                 construire: Callable[[], Disposition], *, quitter: Callable[[], None],
+                 ouvrir: Callable = urllib.request.urlopen, contexte=None,
+                 ecrire: Callable[[str], None] = print):
+        self.app = app
+        self.depot = depot
+        self.verificateur = verificateur
+        self.construire = construire
+        self.quitter = quitter
+        self.ouvrir = ouvrir
+        self.contexte = contexte
+        self.ecrire = ecrire
+        self._verrou = threading.Lock()
+        self._etat = {"etat": "inactif", "version": None, "recu": 0, "total": 0, "erreur": None}
+        self._fil: Optional[threading.Thread] = None
+
+    def possible(self) -> tuple:
+        """(vrai, "") si cette installation peut se remplacer toute seule, sinon
+        (faux, code du refus : source_mode, unsafe_install...)."""
+        return possible(self.construire)
+
+    def etat(self) -> dict:
+        with self._verrou:
+            return dict(self._etat)
+
+    def _fixer(self, **valeurs) -> None:
+        with self._verrou:
+            self._etat.update(valeurs)
+
+    def _echec(self, erreur: BaseException) -> None:
+        if isinstance(erreur, ErreurMiseAJour):
+            detail = {"code": erreur.code, "categorie": erreur.categorie,
+                      "message": {"fr": erreur.message("fr"), "en": erreur.message("en")}}
+        else:
+            detail = {"code": "prepare_failed", "categorie": "prepare_failed",
+                      "message": {"fr": str(erreur), "en": str(erreur)}}
+        self.ecrire(f"[maj] échec de l'installation : {detail['message']['fr']}")
+        self._fixer(etat="erreur", erreur=detail)
+
+    def demarrer(self) -> bool:
+        """Lance l'installation. Faux si elle est déjà en cours."""
+        with self._verrou:
+            if self._etat["etat"] in ("telechargement", "redemarrage"):
+                return False
+            self._etat.update(etat="telechargement", version=None, recu=0, total=0, erreur=None)
+        self._fil = threading.Thread(target=self._travailler, name="installation-maj",
+                                     daemon=True)
+        self._fil.start()
+        return True
+
+    def attendre(self, delai_s: float = 60) -> None:
+        """Pour les tests : attend la fin du fil."""
+        fil = self._fil
+        if fil is not None:
+            fil.join(delai_s)
+
+    def _travailler(self) -> None:
+        prep = None
+        try:
+            self.verificateur.verifier()
+            info = self.verificateur.disponible()
+            if not info:
+                raise _echec("asset_absent", nom="release")
+            self._fixer(version=info["version"])
+            disp = self.construire()
+
+            def progression(recu: int, total: int) -> None:
+                self._fixer(recu=recu, total=total)
+
+            prep = preparer(self.app, info, self.depot, disp, ouvrir=self.ouvrir,
+                            contexte=self.contexte, progression=progression)
+            lancer(self.app, prep, ecrire=self.ecrire)
+            valider(prep, ecrire=self.ecrire)
+        except Exception as erreur:
+            if prep is not None:
+                # Un assistant déjà lancé renonce et nettoie ; sinon on nettoie ici.
+                annuler(prep)
+                nettoyer(prep)
+            self._echec(erreur)
+            return
+        self._fixer(etat="redemarrage")
+        self.ecrire(f"[maj] version {prep.version} installée, arrêt pour laisser la main à l'assistant")
+        self.quitter()

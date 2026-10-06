@@ -363,5 +363,178 @@ class AssistantReel(Base):
                       journal.read_text(encoding="utf-8", errors="replace"))
 
 
+class FauxVerificateur:
+    def __init__(self, info):
+        self.info = info
+        self.verifications = 0
+
+    def verifier(self):
+        self.verifications += 1
+        return True
+
+    def disponible(self):
+        return self.info
+
+
+class InstallateurTests(Base):
+    """L'orchestration, sans réseau ni assistant : preparer, lancer et valider
+    sont remplacés, on vérifie l'enchaînement, l'état et le nettoyage."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        self.mock = mock
+        self.dossier, self.exe = self.installation()
+        self.staging = self.racine / ".exemple.update-x"
+        self.staging.mkdir()
+        self.prep = mi.Preparation(
+            version="9.0.0", token="t", disposition=self.disposition(self.dossier, self.exe),
+            staging_root=self.staging, payload_root=self.staging / "p",
+            backup_root=self.racine / ".exemple.backup-t", failed_root=self.racine / ".exemple.failed-t")
+        self.appels = []
+        self.messages = []
+        self.quitte = []
+
+    def installateur(self, info="defaut", construire=None):
+        if info == "defaut":
+            info = {"version": "9.0.0", "assets": []}
+        return mi.Installateur(
+            APP, DEPOT, FauxVerificateur(info),
+            construire or (lambda: self.disposition(self.dossier, self.exe)),
+            quitter=lambda: self.quitte.append(True), ecrire=self.messages.append)
+
+    def patches(self, **remplacements):
+        defaut = {
+            "preparer": lambda *a, **k: (self.appels.append("preparer"), self.prep)[1],
+            "lancer": lambda *a, **k: self.appels.append("lancer"),
+            "valider": lambda *a, **k: self.appels.append("valider"),
+            "annuler": lambda *a, **k: self.appels.append("annuler"),
+            "nettoyer": lambda *a, **k: self.appels.append("nettoyer"),
+        }
+        defaut.update(remplacements)
+        pile = [self.mock.patch.object(mi, nom, fonction) for nom, fonction in defaut.items()]
+        for patch in pile:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def lancer_et_attendre(self, installateur):
+        self.assertTrue(installateur.demarrer())
+        installateur.attendre(10)
+        return installateur.etat()
+
+    def test_enchainement_complet_puis_arret(self):
+        self.patches()
+        installateur = self.installateur()
+        etat = self.lancer_et_attendre(installateur)
+        self.assertEqual(self.appels, ["preparer", "lancer", "valider"])
+        self.assertEqual(self.quitte, [True])
+        self.assertEqual(etat["etat"], "redemarrage")
+        self.assertEqual(etat["version"], "9.0.0")
+        self.assertEqual(installateur.verificateur.verifications, 1)
+
+    def test_deja_en_cours_refuse_un_second_demarrage(self):
+        import threading
+        porte = threading.Event()
+
+        def bloque(*a, **k):
+            porte.wait(5)
+            return self.prep
+
+        self.patches(preparer=bloque)
+        installateur = self.installateur()
+        self.assertTrue(installateur.demarrer())
+        self.assertFalse(installateur.demarrer())
+        self.assertEqual(installateur.etat()["etat"], "telechargement")
+        porte.set()
+        installateur.attendre(10)
+        self.assertEqual(installateur.etat()["etat"], "redemarrage")
+
+    def test_la_progression_est_visible_dans_l_etat(self):
+        def prepare(app, info, depot, disp, **options):
+            options["progression"](5, 10)
+            self.vu = installateur.etat()
+            return self.prep
+
+        self.patches(preparer=prepare)
+        installateur = self.installateur()
+        self.lancer_et_attendre(installateur)
+        self.assertEqual((self.vu["etat"], self.vu["recu"], self.vu["total"]),
+                         ("telechargement", 5, 10))
+
+    def test_rien_a_installer(self):
+        self.patches()
+        etat = self.lancer_et_attendre(self.installateur(info=None))
+        self.assertEqual(etat["etat"], "erreur")
+        self.assertEqual(etat["erreur"]["code"], "asset_absent")
+        self.assertEqual(self.appels, [])
+        self.assertEqual(self.quitte, [])
+
+    def test_installation_non_remplacable(self):
+        self.patches()
+
+        def refuse():
+            raise maj_archive.ErreurMiseAJour("source_mode")
+
+        etat = self.lancer_et_attendre(self.installateur(construire=refuse))
+        self.assertEqual((etat["etat"], etat["erreur"]["code"]), ("erreur", "source_mode"))
+        self.assertIn("sources", etat["erreur"]["message"]["fr"])
+        self.assertIn("sources", etat["erreur"]["message"]["en"])
+
+    def test_echec_de_preparation_ne_quitte_pas(self):
+        def echoue(*a, **k):
+            raise maj_archive.ErreurMiseAJour("archive_empreinte_incorrecte", obtenue="a", sha256="b")
+
+        self.patches(preparer=echoue)
+        etat = self.lancer_et_attendre(self.installateur())
+        self.assertEqual(etat["erreur"]["categorie"], "integrity_failed")
+        self.assertEqual(self.quitte, [])
+        self.assertEqual(self.appels, [])        # rien n'avait été préparé : rien à nettoyer
+
+    def test_echec_de_l_assistant_nettoie_et_ne_quitte_pas(self):
+        def echoue(*a, **k):
+            raise maj_archive.ErreurMiseAJour("helper_failed", detail="pas prêt")
+
+        self.patches(lancer=echoue)
+        etat = self.lancer_et_attendre(self.installateur())
+        self.assertEqual(etat["erreur"]["code"], "helper_failed")
+        self.assertEqual(self.appels, ["preparer", "annuler", "nettoyer"])
+        self.assertEqual(self.quitte, [])
+
+    def test_echec_du_feu_vert_annule(self):
+        def echoue(*a, **k):
+            raise maj_archive.ErreurMiseAJour("helper_failed", detail="pas d'accusé")
+
+        self.patches(valider=echoue)
+        etat = self.lancer_et_attendre(self.installateur())
+        self.assertEqual(etat["etat"], "erreur")
+        self.assertEqual(self.appels, ["preparer", "lancer", "annuler", "nettoyer"])
+        self.assertEqual(self.quitte, [])
+
+    def test_exception_inattendue_devient_prepare_failed(self):
+        def casse(*a, **k):
+            raise RuntimeError("boum")
+
+        self.patches(preparer=casse)
+        etat = self.lancer_et_attendre(self.installateur())
+        self.assertEqual(etat["erreur"]["code"], "prepare_failed")
+        self.assertEqual(etat["erreur"]["message"]["fr"], "boum")
+
+    def test_on_peut_reessayer_apres_une_erreur(self):
+        self.patches()
+        installateur = self.installateur(info=None)
+        self.assertEqual(self.lancer_et_attendre(installateur)["etat"], "erreur")
+        installateur.verificateur.info = {"version": "9.0.0", "assets": []}
+        etat = self.lancer_et_attendre(installateur)
+        self.assertEqual(etat["etat"], "redemarrage")
+        self.assertIsNone(etat["erreur"])
+
+    def test_possible(self):
+        self.patches()
+        self.assertEqual(self.installateur().possible(), (True, ""))
+        self.assertEqual(self.installateur(construire=lambda: mi.disposition(
+            APP, asset_name="a", archive_kind="zip", racine_attendue="a", fige=False)).possible(),
+            (False, "source_mode"))
+
+
 if __name__ == "__main__":
     unittest.main()
