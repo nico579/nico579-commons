@@ -856,3 +856,81 @@ class Installateur:
         self._fixer(etat="redemarrage")
         self.ecrire(f"[maj] version {prep.version} installée, arrêt pour laisser la main à l'assistant")
         self.quitter()
+
+
+# ------------------------------------------------- convention des archives
+
+def archive_standard(nom: str, *, racine_macos: str, systeme: Optional[str] = None,
+                     machine: Optional[str] = None) -> tuple:
+    """(fichier, genre, racine) de l'archive de ce système selon la convention de
+    gpxsolar et lidar2map : « <nom>-<windows|linux|macos>-<x86_64|arm64> » en
+    .zip (.tar.gz sous Linux), qui contient un dossier du même nom, ou le
+    bundle `racine_macos` (« GPXSOLAR.app ») sous macOS. Windows et Linux
+    n'existent qu'en x86_64 ; macOS en arm64 et x86_64."""
+    systeme = systeme or platform.system()
+    machine = (machine or platform.machine()).lower()
+    arch = {"x86_64": "x86_64", "amd64": "x86_64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
+    if systeme == "Windows" and arch == "x86_64":
+        base = f"{nom}-windows-x86_64"
+        return base + ".zip", "zip", base
+    if systeme == "Linux" and arch == "x86_64":
+        base = f"{nom}-linux-x86_64"
+        return base + ".tar.gz", "tar", base
+    if systeme == "Darwin" and arch:
+        return f"{nom}-macos-{arch}.zip", "zip", racine_macos
+    raise _echec("unsupported_target", cible=f"{systeme}/{machine}")
+
+
+# ------------------------------------------------ routes pour la page de l'application
+
+LIBELLES_BANDEAU = {
+    "fr": {
+        "disponible": "Version {version} disponible.",
+        "installer": "Installer",
+        "voir": "Voir la version",
+        "telechargement": "Téléchargement de la mise à jour…",
+        "redemarrage": "Mise à jour installée, redémarrage…",
+        "erreur": "La mise à jour a échoué :",
+        "reessayer": "Réessayer",
+        "fermer": "Fermer",
+    },
+    "en": {
+        "disponible": "Version {version} available.",
+        "installer": "Install",
+        "voir": "View the release",
+        "telechargement": "Downloading the update…",
+        "redemarrage": "Update installed, restarting…",
+        "erreur": "The update failed:",
+        "reessayer": "Retry",
+        "fermer": "Close",
+    },
+}
+
+
+def routes(installateur: Installateur, langue: Callable[[], str] = lambda: "fr") -> tuple:
+    """(routes GET, routes POST) à ajouter à celles de l'application pour que le
+    bandeau (maj_banniere.js, servi par serveweb) fonctionne : /api/maj rend la
+    version, l'état de l'installation et les textes dans la langue de
+    l'application ; /api/maj-installer la démarre."""
+    def lire_langue() -> str:
+        valeur = (langue() or "fr")[:2].lower()
+        return valeur if valeur in LIBELLES_BANDEAU else "en"
+
+    def etat() -> dict:
+        lg = lire_langue()
+        verificateur = installateur.verificateur
+        info = verificateur.disponible()
+        possible_, raison = installateur.possible()
+        courant = installateur.etat()
+        erreur = courant["erreur"]
+        if erreur:
+            erreur = dict(erreur, message=erreur["message"].get(lg) or erreur["message"]["fr"])
+        return {"version": info["version"] if info else None,
+                "page": (info or {}).get("page") or verificateur.page_des_releases,
+                "possible": possible_, "raison": raison,
+                "etat": dict(courant, erreur=erreur), "libelles": LIBELLES_BANDEAU[lg]}
+
+    def installer(_payload) -> dict:
+        return {"ok": installateur.demarrer()}
+
+    return {"maj": etat}, {"maj-installer": installer}

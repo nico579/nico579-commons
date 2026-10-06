@@ -410,5 +410,26 @@ class HotesDeConfiance(unittest.TestCase):
         self.assertEqual(serveweb.entrees_confiance(None), [])
 
 
+class BandeauMaj(unittest.TestCase):
+    def test_le_script_du_bandeau_est_servi_et_embarque(self):
+        script = Path(serveweb.__file__).with_name("maj_banniere.js")
+        self.assertTrue(script.is_file())
+        h = Demo.__new__(Demo)
+        h.headers = {"Host": "127.0.0.1"}
+        h.client_address = ("127.0.0.1", 1)
+        h.trusted_host = ""
+        h.path = serveweb.ROUTE_BANDEAU_MAJ
+        envoye = {}
+        h.send_static = lambda chemin, type_, cache=None: envoye.update(chemin=chemin, type=type_)
+        h.do_GET()
+        self.assertEqual(envoye["chemin"], script)
+        self.assertTrue(envoye["type"].startswith("text/javascript"))
+
+    def test_le_script_parle_aux_routes_de_maj_install(self):
+        texte = Path(serveweb.__file__).with_name("maj_banniere.js").read_text(encoding="utf-8")
+        for attendu in ("/api/maj", "/api/maj-installer", "libelles", "redemarrage"):
+            self.assertIn(attendu, texte)
+
+
 if __name__ == "__main__":
     unittest.main()

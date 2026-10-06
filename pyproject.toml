@@ -31,5 +31,8 @@ Source = "https://github.com/nico579/nico579-commons"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+nico579_commons = ["*.js"]
+
 [tool.ruff.lint]
 select = ["F"]
