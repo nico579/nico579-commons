@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -256,13 +257,24 @@ class Preparation(Base):
         finally:
             mi.nettoyer(prep)
 
-    def test_arguments_de_relance_avec_le_separateur_refuses(self):
+    def test_nom_de_donnee_avec_le_separateur_refuse(self):
         prep = self.preparer(zip_bundle("9.0.0"))
         try:
-            app = mi.Application("exemple", arguments_relance=("--a|b",))
+            app = mi.Application("exemple", donnees_preservees=("a|b",))
             with self.assertRaises(maj_archive.ErreurMiseAJour) as c:
                 mi.lancer(app, prep, ecrire=lambda *_: None)
             self.assertEqual(c.exception.code, "helper_failed")
+        finally:
+            mi.nettoyer(prep)
+
+    def test_argument_de_relance_avec_tabulation_ou_fin_de_ligne_refuse(self):
+        prep = self.preparer(zip_bundle("9.0.0"))
+        try:
+            for mauvais in ("a\tb", "a\nb", "a\rb"):
+                with self.subTest(argument=repr(mauvais)), \
+                        self.assertRaises(maj_archive.ErreurMiseAJour) as c:
+                    mi.lancer(APP, prep, ecrire=lambda *_: None, verbes=[["start", mauvais]])
+                self.assertEqual(c.exception.code, "helper_failed")
         finally:
             mi.nettoyer(prep)
 
@@ -290,7 +302,8 @@ prep = mi.Preparation(version="9.9.9", token="t0k3n", disposition=disp,
                       staging_root=Path(d["staging"]), payload_root=Path(d["payload"]),
                       backup_root=Path(d["backup"]), failed_root=Path(d["failed"]))
 app = mi.Application("exemple", donnees_preservees=("config.json", "state"),
-                     arguments_relance=("--ouvrir",), fenetre="Minimized")
+                     verbes_relance=(("--ouvrir",), ("watch", "--loop", "60")),
+                     fenetre="Minimized")
 mi.lancer(app, prep)
 mi.valider(prep)
 '''
@@ -301,13 +314,13 @@ def faux_programme(dossier: Path, version: str, *, meurt_aussitot: bool) -> str:
     nom relatif. Il tourne ~10 s s'il ne « meurt aussitôt »."""
     if WINDOWS:
         nom = "app.cmd"
-        corps = f"@echo off\r\necho {version} %* > \"%~dp0demarre-{version}.txt\"\r\n"
+        corps = f"@echo off\r\necho {version} %* >> \"%~dp0demarre-{version}.txt\"\r\n"
         if not meurt_aussitot:
             corps += "ping -n 10 127.0.0.1 >nul\r\n"
         (dossier / nom).write_text(corps)
     else:
         nom = "app"
-        corps = f"#!/bin/sh\necho \"{version} $*\" > \"$(dirname \"$0\")/demarre-{version}.txt\"\n"
+        corps = f"#!/bin/sh\necho \"{version} $*\" >> \"$(dirname \"$0\")/demarre-{version}.txt\"\n"
         if not meurt_aussitot:
             corps += "sleep 10\n"
         (dossier / nom).write_text(corps)
@@ -357,8 +370,14 @@ class AssistantReel(Base):
         # Les données à conserver ont suivi, copiées de l'ancienne installation.
         self.assertEqual((install / "config.json").read_text(), '{"reglage": 1}')
         self.assertEqual((install / "state" / "etat.json").read_text(), "[1]")
-        # Relancée avec ses arguments.
-        self.assertIn("--ouvrir", (install / "demarre-nouvelle.txt").read_text())
+        # Relancée une fois par processus demandé, chacun avec ses arguments.
+        self.assertTrue(self.attendre(lambda: len((install / "demarre-nouvelle.txt")
+                                                  .read_text().split("\n")) >= 3))
+        lignes = [l.strip() for l in (install / "demarre-nouvelle.txt").read_text().splitlines()
+                  if l.strip()]
+        self.assertEqual(len(lignes), 2, lignes)
+        self.assertTrue(any("--ouvrir" in l for l in lignes), lignes)
+        self.assertTrue(any("watch --loop 60" in l for l in lignes), lignes)
         self.assertFalse((install / "demarre-ancienne.txt").exists())
 
     def test_nouvelle_version_qui_meurt_remet_l_ancienne(self):
@@ -448,6 +467,24 @@ class InstallateurTests(BaseInstallateur):
         self.assertEqual(etat["etat"], "redemarrage")
         self.assertEqual(etat["version"], "9.0.0")
         self.assertEqual(installateur.verificateur.verifications, 1)
+
+    def test_les_verbes_a_relancer_sont_pris_a_l_instant_de_la_mise_a_jour(self):
+        vus = []
+        etat = {"verbes": [["start"]]}
+        self.patches(lancer=lambda app, prep, **options: vus.append(options.get("verbes")))
+        installateur = mi.Installateur(
+            APP, DEPOT, FauxVerificateur({"version": "9.0.0", "assets": []}),
+            lambda: self.disposition(self.dossier, self.exe), quitter=lambda: None,
+            ecrire=self.messages.append, verbes_relance=lambda: etat["verbes"])
+        etat["verbes"] = [["start"], ["watch", "--loop"]]       # ce qui tourne maintenant
+        self.lancer_et_attendre(installateur)
+        self.assertEqual(vus, [[["start"], ["watch", "--loop"]]])
+
+    def test_sans_verbes_l_installateur_laisse_l_application_decider(self):
+        vus = []
+        self.patches(lancer=lambda app, prep, **options: vus.append(options.get("verbes", "absent")))
+        self.lancer_et_attendre(self.installateur())
+        self.assertEqual(vus, [None])
 
     def test_deja_en_cours_refuse_un_second_demarrage(self):
         import threading
@@ -551,6 +588,62 @@ class InstallateurTests(BaseInstallateur):
         self.assertEqual(self.installateur(construire=lambda: mi.disposition(
             APP, asset_name="a", archive_kind="zip", racine_attendue="a", fige=False)).possible(),
             (False, "source_mode"))
+
+
+class VerbesDeRelance(Base):
+    def test_processus_a_relancer(self):
+        un = mi.Application("a", arguments_relance=("--port", "9000"))
+        plusieurs = mi.Application("a", verbes_relance=(("start",), ("watch", "--loop")))
+        self.assertEqual(mi.processus_a_relancer(un), [["--port", "9000"]])
+        self.assertEqual(mi.processus_a_relancer(plusieurs), [["start"], ["watch", "--loop"]])
+        # Ce qui tourne à l'instant de la mise à jour l'emporte sur la déclaration.
+        self.assertEqual(mi.processus_a_relancer(plusieurs, [["serve", 8080]]), [["serve", "8080"]])
+        self.assertEqual(mi.processus_a_relancer(plusieurs, []), [])
+        self.assertEqual(mi.processus_a_relancer(mi.Application("a")), [[]])
+
+    def test_relancer_verbes_un_processus_par_entree(self):
+        lances = []
+        mi_commandes = mi.relancer_verbes(
+            Path("/opt/app/exemple"), [["start"], ["watch", "--loop", "60"]],
+            demarrer=lambda commande, **options: lances.append((commande, options)),
+            cwd=Path("/opt/app"), env={"X": "1"})
+        self.assertEqual(mi_commandes, [["/opt/app/exemple".replace("/", os.sep), "start"],
+                                        ["/opt/app/exemple".replace("/", os.sep), "watch", "--loop", "60"]])
+        self.assertEqual([c for c, _ in lances], mi_commandes)
+        for _, options in lances:
+            self.assertEqual(options["env"], {"X": "1"})
+            self.assertEqual(options["stdin"], subprocess.DEVNULL)
+
+    def test_relancer_verbes_sans_verbe_relance_la_valeur_par_defaut(self):
+        lances = []
+        mi.relancer_verbes(Path("/x/exemple"), [], par_defaut=("start",),
+                           demarrer=lambda commande, **options: lances.append(commande))
+        self.assertEqual([c[1:] for c in lances], [["start"]])
+
+    def test_relancer_verbes_sans_demarreur_detache_vraiment(self):
+        # Un vrai processus (python qui écrit son argument), détaché.
+        sortie = self.racine / "sortie.txt"
+        programme = self.racine / "ecrit.py"
+        programme.write_text("import sys; open(sys.argv[1], 'a').write(sys.argv[2] + '\\n')")
+        with warnings.catch_warnings():
+            # Détachés exprès : personne n'attend ces processus.
+            warnings.simplefilter("ignore", ResourceWarning)
+            mi.relancer_verbes(Path(sys.executable), [[str(programme), str(sortie), "un"],
+                                                      [str(programme), str(sortie), "deux"]])
+        fin = time.monotonic() + 30
+        while time.monotonic() < fin and (not sortie.exists()
+                                          or len(sortie.read_text().split()) < 2):
+            time.sleep(0.2)
+        self.assertEqual(sorted(sortie.read_text().split()), ["deux", "un"])
+
+    def test_le_fichier_de_relance_porte_un_processus_par_ligne(self):
+        prep_dossier = self.racine / "prep"
+        prep_dossier.mkdir()
+        fichier = prep_dossier / "relance.txt"
+        fichier.write_text("\n".join("\t".join(l) for l in [["start"], ["watch", "--loop", "60"]]) + "\n",
+                           encoding="utf-8", newline="\n")
+        lignes = fichier.read_text(encoding="utf-8").splitlines()
+        self.assertEqual([l.split("\t") for l in lignes], [["start"], ["watch", "--loop", "60"]])
 
 
 class ArchiveStandard(unittest.TestCase):
