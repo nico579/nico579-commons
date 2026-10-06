@@ -301,6 +301,38 @@ class EcouteHoteConfiance(unittest.TestCase):
         with mock.patch.object(ecoute, "_adresses", return_value=[]):
             self.assertEqual(ecoute.definir("vpn.exemple"), "en attente")
 
+    def test_ecoute_sur_l_adresse_de_l_hote_puis_s_arrete(self):
+        # Repris de lidar2map : le serveur principal reste sur la boucle locale
+        # et l'écoute en plus sur l'adresse de l'hôte de confiance (VPN maillé),
+        # qui cesse de répondre à l'arrêt.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sonde:
+            try:
+                sonde.connect(("203.0.113.1", 80))     # sans trafic réel
+                adresse = sonde.getsockname()[0]
+            except OSError:
+                adresse = "127.0.0.1"
+        if adresse.startswith("127."):
+            self.skipTest("aucune interface réseau hors boucle locale")
+        tmp, gui = preparer_gui()
+        self.addCleanup(tmp.cleanup)
+        serveur = serveweb.demarrer(
+            bind="127.0.0.1", port=0, trusted_host=adresse, gui_dir=gui,
+            api_routes={"init": lambda: {"app": "demo"}}, handler=Demo)
+        self.addCleanup(serveur.server_close)
+        self.addCleanup(serveur.shutdown)
+        port = serveur.server_address[1]
+        ecoute = serveweb.EcouteHoteConfiance(port, handler=Demo)
+        self.addCleanup(ecoute.arreter)
+        self.assertEqual(ecoute.definir(adresse), "actif")
+        with urllib.request.urlopen(f"http://{adresse}:{port}/api/init", timeout=5) as reponse:
+            self.assertEqual(json.loads(reponse.read())["app"], "demo")
+        # La boucle locale reste servie par le serveur principal.
+        self.assertTrue(serveweb.instance_existante("demo", "127.0.0.1", port))
+        ecoute.arreter()
+        self.assertEqual(ecoute.etat, "inactif")
+        with self.assertRaises(OSError):
+            urllib.request.urlopen(f"http://{adresse}:{port}/api/init", timeout=3)
+
     def test_utilise_le_handler_de_l_application(self):
         class Handler(Demo):
             pass

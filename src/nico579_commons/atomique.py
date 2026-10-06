@@ -29,8 +29,13 @@ PAUSE_REFUS_S = 0.05
 SUFFIXES_ANNEXES = ("", "-wal", "-shm", "-journal")
 
 
-def lire_json(path, defaut):
+def lire_json(path, defaut, *, tolerer_corrompu=True):
     """Contenu JSON de ``path``, ou ``defaut`` s'il est absent ou corrompu.
+
+    ``tolerer_corrompu=False`` : un JSON invalide lève l'erreur au lieu de
+    rendre ``defaut``. Pour une configuration que l'utilisateur peut encore
+    réparer à la main et qu'il ne faut pas remplacer en silence par celle par
+    défaut (config.json de watch2notif).
 
     Un fichier PRÉSENT mais illisible (refus Windows qui persiste, erreur
     disque) lève l'OSError au lieu de rendre ``defaut`` : un appelant qui
@@ -54,6 +59,8 @@ def lire_json(path, defaut):
     try:
         return json.loads(texte)
     except ValueError:
+        if not tolerer_corrompu:
+            raise
         return defaut   # contenu corrompu : repartir de zéro, comme avant
 
 
@@ -129,15 +136,16 @@ def chemin_part(path):
     return part
 
 
-def ecrire_json(chemin, donnees) -> None:
+def ecrire_json(chemin, donnees, indent=2) -> None:
     """Remplace ``chemin`` d'un bloc : un lecteur voit l'ancien ou le nouveau
     contenu, jamais un fichier tronqué. Le fichier temporaire, propre à cet
-    appel, n'est partagé par aucun autre écrivain."""
+    appel, n'est partagé par aucun autre écrivain. ``indent=None`` : JSON
+    compact, pour les fichiers d'état volumineux que personne ne lit à la main."""
     chemin = Path(chemin)
     chemin.parent.mkdir(parents=True, exist_ok=True)
     temporaire = chemin_part(chemin)
     try:
-        temporaire.write_text(json.dumps(donnees, ensure_ascii=False, indent=2),
+        temporaire.write_text(json.dumps(donnees, ensure_ascii=False, indent=indent),
                               encoding="utf-8")
         remplacer(temporaire, chemin)
     finally:
