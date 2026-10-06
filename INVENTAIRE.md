@@ -197,6 +197,17 @@ l'application, relance vérifiée, retour arrière si la nouvelle version ne tie
 Testé pour de vrai sur le système de la CI (PowerShell ou sh), dont le retour
 arrière. watch2notif en est le premier client (self_update.py : 1079 à 148 lignes).
 
+0.4.4 (2026-10-06) : `demarrage`, le démarrage automatique avec la session, que
+blink2video (autostart.py), lidar2map (_autostart.py) et watch2notif
+(autostart_manager.py) écrivaient chacun de leur côté. Une Entree (nom, commande,
+dossier, description, label macOS) ; activer, desactiver, est_actif, installees,
+apercu. Le meilleur des trois : arguments systemd entre guillemets avec % et $
+doublés, environnement de session de « systemctl --user » déduit de /run/user/<uid>,
+refus de systemd rapportés au lieu d'être annoncés comme un succès, agent launchd
+écrit par plistlib (toujours valide), raccourci Windows par raccourci.creer,
+migration du vieux .vbs. Dérive trouvée en comparant : watch2notif n'échappait ni
+les arguments systemd ni le XML de l'agent macOS.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
