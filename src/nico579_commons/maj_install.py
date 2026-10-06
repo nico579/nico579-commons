@@ -24,6 +24,8 @@ Bibliothèque standard seule (comme maj_archive).
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import platform
 import plistlib
@@ -38,9 +40,9 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
-from . import maj_archive
+from . import atomique, maj_archive
 from .maj_archive import ErreurMiseAJour
 
 ARRET_PRET_S = 25        # attente de « prêt » : Windows peut scanner un script inédit (AMSI)
@@ -937,3 +939,284 @@ def routes(installateur: Installateur, langue: Callable[[], str] = lambda: "fr")
         return {"ok": installateur.demarrer()}
 
     return {"maj": etat}, {"maj-installer": installer}
+
+
+# ======================================================================
+# Remplacement élément par élément, avec reprise après coupure
+# ======================================================================
+#
+# L'autre façon de remplacer une installation, celle de blink2video : au lieu
+# d'un assistant externe qui échange le dossier entier, la NOUVELLE version
+# (lancée depuis son dossier de préparation) arrête l'ancienne, copie ses
+# fichiers un à un à la place des anciens et relance. Elle ne demande aucun droit
+# sur le dossier parent, elle sait relancer plusieurs processus (chaque
+# composition qui tournait), et un marqueur écrit AVANT la première modification
+# permet de reprendre, ou de refuser de purger la seule sauvegarde, après un arrêt
+# brutal. Les deux stratégies partagent la préparation (preparer) ; l'application
+# choisit celle qui convient à la façon dont elle est livrée et s'exécute.
+
+MARQUEUR_PERMUTATION = ".maj_permutation.json"
+NOM_RESERVATION = ".maj-installation"
+
+LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non finalisée subsiste : {marqueur}. '
+                                     'Sauvegardes .ancien conservées ; réparation nécessaire.',
+        'permutation_preparation_interrompue': 'Préparation de permutation interrompue : '
+                                               '{marqueur}. Aucun remplacement autorisé avant '
+                                               'vérification.',
+        'permutation_non_demarree': 'Permutation non démarrée : {erreur}',
+        'echec_remplacement': 'Échec du remplacement ({erreur}). Retour à la version précédente.',
+        'restauration_incomplete': 'Restauration incomplète ; aucune relance ni nouvelle '
+                                   'tentative. Conserver {marqueur} et les sauvegardes .ancien. '
+                                   '{echecs}',
+        'maj_precedente_non_finalisee': 'Mise à jour précédente non finalisée : sauvegardes et '
+                                        'préparation conservées.',
+        'arret_version_en_place': 'Arrêt de la version en place…',
+        'arret_echoue': "Mise à jour interrompue : la commande d'arrêt a échoué.",
+        'instance_encore_active': 'Mise à jour interrompue : une instance est encore active.',
+        'version_precedente_intacte': "La version précédente est intacte : rien n'a été remplacé.",
+        'installe_dans': 'Installé dans {installe}',
+        'installation_non_reservee': 'Installation non réservée ; aucun remplacement ni nettoyage '
+                                     'autorisé ({erreur}).',
+        'brut': '{texte}'},
+ 'en': {'permutation_non_finalisee': 'An unfinished swap remains: {marqueur}. .old backups kept; '
+                                     'repair needed.',
+        'permutation_preparation_interrompue': 'Swap preparation interrupted: {marqueur}. No '
+                                               'replacement allowed before verification.',
+        'permutation_non_demarree': 'Swap not started: {erreur}',
+        'echec_remplacement': 'Replacement failed ({erreur}). Reverting to the previous version.',
+        'restauration_incomplete': 'Incomplete restoration; no relaunch or further attempt. Keep '
+                                   '{marqueur} and the .old backups. {echecs}',
+        'maj_precedente_non_finalisee': 'Previous update not finalized: backups and preparation '
+                                        'kept.',
+        'arret_version_en_place': 'Stopping the current version…',
+        'arret_echoue': 'Update interrupted: the stop command failed.',
+        'instance_encore_active': 'Update interrupted: an instance is still active.',
+        'version_precedente_intacte': 'The previous version is intact: nothing was replaced.',
+        'installe_dans': 'Installed in {installe}',
+        'installation_non_reservee': 'Installation not reserved; no replacement or cleanup allowed '
+                                     '({erreur}).',
+        'brut': '{texte}'}}
+
+
+def texte(cle: str, langue: str = "fr", **valeurs) -> str:
+    """Message de la permutation dans la langue demandée (anglais à défaut)."""
+    modele = LIBELLES_PERMUTATION.get(langue, LIBELLES_PERMUTATION["en"]).get(cle) or cle
+    try:
+        return modele.format(**valeurs)
+    except (KeyError, IndexError):
+        return modele
+
+
+class RestaurationIncomplete(RuntimeError):
+    """La sauvegarde doit rester intacte jusqu'à une réparation explicite."""
+
+
+@contextlib.contextmanager
+def reservation(installe: Path, nom: str = NOM_RESERVATION, *, langue: str = "fr"):
+    """Sérialise nettoyage et permutation d'une même installation, entre processus.
+
+    Le verrou (atomique.verrou_inter_processus, relâché par l'OS à la mort de son
+    détenteur) empêche un nettoyage concurrent de franchir le contrôle du marqueur
+    avant sa création. Le marqueur, lui, survit à un arrêt brutal. Les erreurs du
+    corps ne sont pas des échecs d'acquisition : elles suivent leur propre retour
+    arrière, sans être requalifiées."""
+    with contextlib.ExitStack() as reservations:
+        try:
+            reservations.enter_context(atomique.verrou_inter_processus(
+                Path(installe) / nom, delai_s=0))
+        except (TimeoutError, OSError) as erreur:
+            raise RestaurationIncomplete(
+                texte("installation_non_reservee", langue, erreur=erreur)) from erreur
+        yield
+
+
+def effacer_element(chemin: Path) -> None:
+    if chemin.is_dir() and not chemin.is_symlink():
+        shutil.rmtree(chemin)
+    else:
+        chemin.unlink(missing_ok=True)
+
+
+def poser(source: Path, cible: Path) -> None:
+    """Installe un fichier ou un dossier neuf à sa place définitive.
+
+    Une copie, et non un déplacement : le programme qui exécute cette fonction
+    est celui du dossier neuf, ses bibliothèques sont chargées depuis
+    `_internal`, et Windows refuse de renommer un dossier dont un fichier est
+    mappé en mémoire. Copier ne demande rien d'exclusif sur la source."""
+    if source.is_dir():
+        # symlinks=True : les liens internes du bundle (validés à l'extraction)
+        # restent des liens au lieu d'être dupliqués ; la structure du framework
+        # Python sous macOS en dépend.
+        shutil.copytree(source, cible, symlinks=True)
+    else:
+        shutil.copy2(source, cible)
+        if os.name != "nt":
+            cible.chmod(0o755)
+
+
+def permuter(neuf: Path, installe: Path, elements: Sequence[str], *,
+             marqueur: str = MARQUEUR_PERMUTATION, nom_reservation: str = NOM_RESERVATION,
+             poser: Callable = poser, ecrire: Callable[[str], None] = print,
+             langue: str = "fr") -> bool:
+    """Met les fichiers neufs à la place des anciens, ou remet tout en l'état.
+
+    Les anciens sont écartés (« <nom>.ancien ») avant d'être supprimés : si une
+    copie échoue à mi-chemin, on sait revenir en arrière, ce qu'un effacement
+    préalable rendrait impossible. Rend vrai si tout est en place, faux si la
+    permutation n'a pas pu démarrer (rien n'a changé : on peut réessayer), et
+    lève RestaurationIncomplete si le retour arrière lui-même échoue ou si une
+    permutation précédente n'est pas finalisée (rien ne doit alors être purgé)."""
+    with reservation(installe, nom_reservation, langue=langue):
+        return _permuter_reserve(Path(neuf), Path(installe), elements, marqueur, poser,
+                                 ecrire, langue)
+
+
+def _permuter_reserve(neuf, installe, elements, nom_marqueur, poser, ecrire, langue) -> bool:
+    marqueur = installe / nom_marqueur
+    try:
+        # Création exclusive AVANT la première mutation : un arrêt brutal laisse
+        # aussi le garde-fou empêchant de purger la seule sauvegarde.
+        with marqueur.open("x", encoding="utf-8") as fichier:
+            json.dump({"elements": list(elements)}, fichier)
+    except FileExistsError as erreur:
+        raise RestaurationIncomplete(
+            texte("permutation_non_finalisee", langue, marqueur=marqueur)) from erreur
+    except OSError as erreur:
+        if marqueur.exists():
+            raise RestaurationIncomplete(
+                texte("permutation_preparation_interrompue", langue, marqueur=marqueur)) from erreur
+        ecrire(texte("permutation_non_demarree", langue, erreur=erreur))
+        return False
+
+    touches = []
+    try:
+        for nom in elements:
+            source = neuf / nom
+            if not source.exists():
+                continue
+            ancien = installe / nom
+            retire = None
+            if ancien.exists():
+                retire = installe / f"{nom}.ancien"
+                effacer_element(retire)
+                os.replace(ancien, retire)
+            touches.append((retire, ancien))
+            poser(source, installe / nom)
+        marqueur.unlink()
+        return True
+    except OSError as erreur:
+        ecrire(texte("echec_remplacement", langue, erreur=erreur))
+        echecs = []
+        for retire, ancien in reversed(touches):
+            try:
+                # Supprimer aussi un élément neuf qui n'existait pas avant.
+                effacer_element(ancien)
+                if retire is not None:
+                    os.replace(retire, ancien)
+            except OSError as restauration:
+                echecs.append(f"{ancien.name}: {restauration}")
+        if not echecs:
+            try:
+                marqueur.unlink()
+            except OSError as restauration:
+                echecs.append(str(restauration))
+        if echecs:
+            raise RestaurationIncomplete(
+                texte("restauration_incomplete", langue, marqueur=marqueur,
+                      echecs=" ; ".join(echecs))) from erreur
+        return False
+
+
+def nettoyer_restes(installe: Path, elements: Sequence[str], *,
+             marqueur: str = MARQUEUR_PERMUTATION, nom_reservation: str = NOM_RESERVATION,
+             apres: Optional[Callable[[Path], None]] = None, langue: str = "fr") -> None:
+    """Efface les restes d'une mise à jour précédente (les « <nom>.ancien »), puis
+    appelle `apres(installe)` pour ceux que l'application a posés elle-même.
+
+    Ce ménage ne peut pas se faire à la fin de l'opération : le programme qui
+    permute tourne depuis son dossier de préparation, et sous Windows un
+    exécutable ne peut pas effacer le dossier dont il est issu. On le fait donc au
+    début de la suivante, quand plus personne n'y tient. Refuse (lève
+    RestaurationIncomplete) si une permutation précédente n'est pas finalisée :
+    les sauvegardes sont alors tout ce qui reste."""
+    installe = Path(installe)
+    with reservation(installe, nom_reservation, langue=langue):
+        if (installe / marqueur).exists():
+            raise RestaurationIncomplete(texte("maj_precedente_non_finalisee", langue))
+        for nom in elements:
+            reste = installe / f"{nom}.ancien"
+            try:
+                shutil.rmtree(reste, ignore_errors=True) if reste.is_dir() \
+                    else reste.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if apres is not None:
+            apres(installe)
+
+
+def finaliser(installe: Path, neuf: Path, elements: Sequence[str], *,
+              noter: Callable[[], object], arreter: Callable[[], bool],
+              vivants: Callable[[], bool], relancer: Callable[[object], None],
+              dire: Callable[..., None], marqueur: str = MARQUEUR_PERMUTATION,
+              nom_reservation: str = NOM_RESERVATION, poser: Callable = poser,
+              permutation: Optional[Callable[[Path, Path], bool]] = None,
+              tentatives_arret: int = 20, tentatives_permutation: int = 15,
+              dormir: Callable[[float], None] = time.sleep, langue: str = "fr") -> int:
+    """Second temps du remplacement, exécuté par la nouvelle version : arrêter
+    l'ancienne, remplacer, relancer. Rend le code de sortie du processus.
+
+    L'application fournit ce qui lui est propre :
+      noter()        ce qui tourne, noté AVANT l'arrêt (c'est ce qu'il faudra relancer) ;
+      arreter()      arrête la version en place, vrai si l'arrêt a réussi ;
+      vivants()      vrai tant qu'un processus de l'ancienne version subsiste ;
+      relancer(état) relance ce que noter() avait vu ;
+      dire(cle, echec, **valeurs)  rapporte une étape ou un échec (cles de
+                     LIBELLES_PERMUTATION : texte(cle, langue, **valeurs)) ;
+                     `echec` vrai : la mise à jour s'arrête sans relance.
+      permutation(neuf, installe)  facultatif : remplace permuter() de ce module (une
+                     application qui l'enveloppe, ou un test).
+
+    Sans copie à faire (`neuf == installe`, une installation depuis les sources
+    déjà mise à jour par git), on ne fait que relancer."""
+    installe, neuf = Path(installe), Path(neuf)
+    etat = noter()
+    dire("arret_version_en_place", False)
+    if not arreter():
+        dire("arret_echoue", True)
+        return 1
+    # Les fichiers restent tenus quelques instants après la mort du processus,
+    # le temps que le système referme ses poignées.
+    for _ in range(tentatives_arret):
+        if not vivants():
+            break
+        dormir(1)
+    else:
+        dire("instance_encore_active", True)
+        return 1
+
+    if neuf != installe:
+        for _ in range(tentatives_permutation):
+            try:
+                if permutation is not None:
+                    reussi = permutation(neuf, installe)
+                else:
+                    reussi = permuter(
+                        neuf, installe, elements, marqueur=marqueur,
+                        nom_reservation=nom_reservation, poser=poser,
+                        ecrire=lambda message: dire("brut", False, texte=message),
+                        langue=langue)
+            except RestaurationIncomplete as erreur:
+                dire("brut", False, texte=str(erreur))
+                return 1
+            if reussi:
+                break
+            dormir(2)
+        else:
+            dire("version_precedente_intacte", False)
+            relancer(etat)
+            return 1
+
+    dire("installe_dans", False, installe=installe)
+    relancer(etat)
+    return 0
