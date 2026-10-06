@@ -187,6 +187,16 @@ Reste propre à chaque application : la permutation de l'installation avec retou
 arrière et la relance (dossier échangé chez blink2video, assistant externe chez
 watch2notif), qui dépendent de la façon dont l'application est livrée.
 
+0.4.3 (2026-10-06) : `maj_install`, l'installation automatique d'une version
+téléchargée avec retour arrière, tirée de self_update.py de watch2notif et
+généralisée (nom, données conservées, service systemd, agent launchd, arguments
+de relance, style de fenêtre). Le même protocole pour toutes les applications
+livrées en dossier PyInstaller ou en .app : préparation (maj_archive, auto-test),
+assistant externe prêt puis feu vert, échange des dossiers après la fin de
+l'application, relance vérifiée, retour arrière si la nouvelle version ne tient pas.
+Testé pour de vrai sur le système de la CI (PowerShell ou sh), dont le retour
+arrière. watch2notif en est le premier client (self_update.py : 1079 à 148 lignes).
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
