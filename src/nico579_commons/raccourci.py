@@ -19,6 +19,7 @@ seule sait comment elle se lance.
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -69,7 +70,34 @@ def bureau(plateforme: Optional[str] = None) -> Path:
         # de CSIDL_DESKTOP, racine virtuelle du Shell, qui n'est pas un chemin).
         ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, tampon)
         return Path(tampon.value)
+    if plateforme.startswith("linux"):
+        return _bureau_linux()
     return Path.home() / "Desktop"
+
+
+def _bureau_linux() -> Path:
+    """Le dossier du Bureau de l'utilisateur, tel que le dit XDG.
+
+    ~/Desktop n'existe que sur un système en anglais : « Bureau » en
+    français, « Schreibtisch » en allemand. Même lecture que xdg-user-dir
+    (~/.config/user-dirs.dirs, XDG_DESKTOP_DIR), sans lancer de programme ; à
+    défaut ~/Desktop."""
+    accueil = Path.home()
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or accueil / ".config")
+    try:
+        lignes = (config / "user-dirs.dirs").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lignes = []
+    for ligne in lignes:
+        ligne = ligne.strip()
+        if ligne.startswith("XDG_DESKTOP_DIR="):
+            valeur = ligne.split("=", 1)[1].strip().strip('"')
+            valeur = valeur.replace("$HOME", str(accueil)).replace("${HOME}", str(accueil))
+            chemin = Path(valeur)
+            # Un chemin relatif ou égal à ~ (Bureau désactivé) n'est pas un Bureau.
+            if chemin.is_absolute() and chemin != accueil:
+                return chemin
+    return accueil / "Desktop"
 
 
 def _chaine_ps(valeur: str) -> str:
@@ -153,13 +181,39 @@ def _macos(nom, commande, dossier, simulation, langue, dossier_bureau, lancer, e
     return 0
 
 
+# Caractères qui obligent à entourer un argument de guillemets dans la clé Exec
+# (spécification Desktop Entry, « Exec variables »).
+_RESERVES_EXEC = frozenset(" \t\n\"'\\><~|&;$*?#()`")
+
+
+def argument_exec(argument: str) -> str:
+    """Un argument écrit pour la clé Exec d'un fichier .desktop.
+
+    Ce n'est pas la syntaxe d'un shell : shlex.quote() entoure d'apostrophes,
+    que la spécification ne connaît pas. Ici, guillemets doubles seulement si
+    nécessaire ; à l'intérieur, guillemet, accent grave, dollar et barre
+    oblique inverse sont précédés d'une barre oblique inverse ; « % » est
+    doublé (sinon c'est un code de champ) ; enfin chaque barre oblique inverse
+    est doublée par la règle générale des chaînes, si bien qu'une barre
+    oblique inverse littérale s'écrit avec quatre. Un argument vide s'écrit
+    ""."""
+    if not argument:
+        return '""'
+    argument = argument.replace("%", "%%")
+    if not any(c in _RESERVES_EXEC for c in argument):
+        return argument
+    for c in ("\\", '"', "`", "$"):
+        argument = argument.replace(c, "\\" + c)
+    return '"' + argument.replace("\\", "\\\\") + '"'
+
+
 def contenu_desktop(nom: str, commande: Sequence[str], dossier: Path,
                     icone: Optional[Path] = None, terminal: bool = False) -> str:
     """Le fichier .desktop (Linux), séparé pour les tests."""
-    exec_ligne = "sh -c {}".format(
-        shlex.quote(" ".join(shlex.quote(str(a)) for a in commande)))
+    exec_ligne = " ".join(argument_exec(str(a)) for a in commande)
+    chemin_travail = str(dossier).replace("\\", "\\\\")
     lignes = ["[Desktop Entry]", "Type=Application", f"Name={nom}",
-              f"Exec={exec_ligne}", f"Path={dossier}"]
+              f"Exec={exec_ligne}", f"Path={chemin_travail}"]
     if icone:
         lignes.append(f"Icon={icone}")
     lignes.append(f"Terminal={'true' if terminal else 'false'}")
@@ -177,9 +231,12 @@ def _linux(nom, commande, dossier, icone, terminal, simulation, langue, dossier_
     cible.write_text(contenu, encoding="utf-8")
     cible.chmod(0o755)
     # GNOME/Nautilus refuse de lancer un .desktop du Bureau tant qu'il n'est
-    # pas marqué « de confiance » ; KDE et XFCE ignorent cet attribut.
+    # pas marqué « de confiance » ; KDE et XFCE ignorent cet attribut. La
+    # valeur est la chaîne « true », pas « yes » : Nautilus et DING (les icônes
+    # du bureau d'Ubuntu) comparent à 'true' et traitent toute autre valeur
+    # comme « lancement non autorisé » (vu dans la VM Ubuntu, 2026-10-06).
     try:
-        lancer(["gio", "set", str(cible), "metadata::trusted", "yes"])
+        lancer(["gio", "set", str(cible), "metadata::trusted", "true"])
     except OSError:
         pass
     ecrire(_texte(langue, "cree", cible=cible))
