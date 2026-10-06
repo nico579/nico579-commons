@@ -61,7 +61,13 @@ class Application:
     # _internal (verrou d'instance, journal...). Tout autre nom fait refuser
     # le remplacement : le dossier n'est pas, ou plus, le bundle publié.
     noms_toleres: tuple = ()
+    # Ce qu'il faut relancer : un processus avec ces arguments (arguments_relance),
+    # ou plusieurs, un par entrée de verbes_relance (chacune la liste d'arguments
+    # d'un processus : les « verbes » qui tournaient, comme les compositions de
+    # blink2video). Ce qui tourne n'est connu qu'au moment de la mise à jour :
+    # lancer() et l'Installateur acceptent aussi la liste à ce moment-là.
     arguments_relance: tuple = ()
+    verbes_relance: tuple = ()
     unite_systemd: str = ""          # ex. « watch2notif.service » (service utilisateur)
     label_launchd: str = ""          # ex. « com.nico.watch2notif »
     option_auto_test: str = "--self-test-version"
@@ -292,19 +298,36 @@ _ASSISTANT_WINDOWS = r'''param(
     [string]$GoFile,
     [string]$LogFile,
     [string]$Preserved,
-    [string]$RelaunchArgs,
+    [string]$RelaunchFile,
     [string]$WindowStyle
 )
 $ErrorActionPreference = "Stop"
 function Write-UpdateLog([string]$Message) {
     try { Add-Content -LiteralPath $LogFile -Value ((Get-Date -Format o) + " " + $Message) -Encoding UTF8 } catch {}
 }
+function Quote-Argument([string]$Argument) {
+    if ($Argument -match '[\s"]') { return '"' + ($Argument -replace '"', '\"') + '"' }
+    return $Argument
+}
 function Start-App([string]$Root) {
+    # Un processus par ligne du fichier de relance (arguments séparés par une
+    # tabulation) ; sans fichier, un seul processus sans argument. Le premier
+    # est celui dont on vérifie qu'il reste en vie.
     $exe = Join-Path $Root $ExecutableRelative
-    $params = @{ FilePath = $exe; WorkingDirectory = (Split-Path -Parent $exe); WindowStyle = $WindowStyle; PassThru = $true }
-    $list = @($RelaunchArgs -split '\|' | Where-Object { $_ })
-    if ($list.Count -gt 0) { $params.ArgumentList = $list }
-    return Start-Process @params
+    $lines = @()
+    if ($RelaunchFile -and (Test-Path -LiteralPath $RelaunchFile)) {
+        $lines = @(Get-Content -LiteralPath $RelaunchFile -Encoding UTF8)
+    }
+    if ($lines.Count -eq 0) { $lines = @("") }
+    $first = $null
+    foreach ($line in $lines) {
+        $params = @{ FilePath = $exe; WorkingDirectory = (Split-Path -Parent $exe); WindowStyle = $WindowStyle; PassThru = $true }
+        $list = @($line -split "`t" | Where-Object { $_ } | ForEach-Object { Quote-Argument $_ })
+        if ($list.Count -gt 0) { $params.ArgumentList = $list }
+        $process = Start-Process @params
+        if ($null -eq $first) { $first = $process }
+    }
+    return $first
 }
 function Copy-UserData([string]$OldRoot, [string]$NewRoot) {
     $oldData = Join-Path $OldRoot $DataRelative
@@ -421,7 +444,7 @@ mac_plist=${14}
 service_unit=${15}
 launchd_label=${16}
 preserved=${17}
-relaunch_args=${18}
+relaunch_file=${18}
 
 write_log() {
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$log_file" 2>/dev/null || true
@@ -476,14 +499,26 @@ start_version() {
         return $?
     fi
     working_dir=$(dirname "$exe")
-    old_ifs=$IFS
-    IFS='|'
-    set -- $relaunch_args
-    IFS=$old_ifs
-    (cd "$working_dir" && exec "$exe" "$@" >/dev/null 2>&1) &
-    new_pid=$!
+    # Un processus par ligne du fichier de relance (arguments séparés par une
+    # tabulation) ; sans fichier, un seul processus sans argument. Le premier
+    # est celui dont on vérifie qu'il reste en vie.
+    first_pid=""
+    if [ -n "$relaunch_file" ] && [ -s "$relaunch_file" ]; then
+        tab=$(printf '\t')
+        while IFS= read -r line || [ -n "$line" ]; do
+            old_ifs=$IFS
+            IFS=$tab
+            set -- $line
+            IFS=$old_ifs
+            (cd "$working_dir" && exec "$exe" "$@" </dev/null >/dev/null 2>&1) &
+            [ -n "$first_pid" ] || first_pid=$!
+        done < "$relaunch_file"
+    else
+        (cd "$working_dir" && exec "$exe" </dev/null >/dev/null 2>&1) &
+        first_pid=$!
+    fi
     sleep 5
-    kill -0 "$new_pid" 2>/dev/null
+    kill -0 "$first_pid" 2>/dev/null
 }
 restore_old() {
     if use_launchd; then
@@ -637,13 +672,35 @@ def _preparer_agent_macos(app: Application, plist: Optional[Path]) -> None:
         raise _echec("helper_failed", detail=f"LaunchAgent : {erreur}") from erreur
 
 
-def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None] = print) -> None:
+def processus_a_relancer(app: Application,
+                         verbes: Optional[Sequence[Sequence[str]]] = None) -> list:
+    """Les processus à relancer après la mise à jour, chacun la liste de ses
+    arguments : `verbes` s'il est donné (ce qui tournait, noté à l'instant de la
+    mise à jour), sinon verbes_relance de l'application, sinon un seul processus
+    avec arguments_relance."""
+    if verbes is not None:
+        return [[str(a) for a in v] for v in verbes]
+    if app.verbes_relance:
+        return [[str(a) for a in v] for v in app.verbes_relance]
+    return [[str(a) for a in app.arguments_relance]]
+
+
+def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None] = print,
+           verbes: Optional[Sequence[Sequence[str]]] = None) -> None:
     """Démarre l'assistant, vérifie qu'il est prêt, puis rend la main à
-    l'appelant, qui doit ensuite appeler valider() et se fermer."""
+    l'appelant, qui doit ensuite appeler valider() et se fermer.
+
+    `verbes` : les processus à relancer, un par entrée, chacune la liste de ses
+    arguments (voir processus_a_relancer)."""
     _chemins_valides(prep)
-    if any("|" in argument for argument in (*app.arguments_relance, *app.donnees_preservees)):
-        # « | » sépare les listes passées à l'assistant.
-        raise _echec("helper_failed", detail="argument de relance ou nom de donnée avec « | »")
+    if any("|" in nom for nom in app.donnees_preservees):
+        # « | » sépare les noms de données passés à l'assistant.
+        raise _echec("helper_failed", detail="nom de donnée avec « | »")
+    processus = processus_a_relancer(app, verbes)
+    if any(c in argument for ligne in processus for argument in ligne for c in "\t\r\n"):
+        # Tabulation et fin de ligne séparent les arguments et les processus du
+        # fichier de relance lu par l'assistant.
+        raise _echec("helper_failed", detail="argument de relance avec tabulation ou fin de ligne")
     disp = prep.disposition
     pret = prep.staging_root / "helper.ready"
     feu_vert = prep.staging_root / "helper.go"
@@ -660,7 +717,13 @@ def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None]
               str(prep.staging_root), str(prep.backup_root), str(prep.failed_root),
               str(disp.data_relative), str(disp.executable_relative)]
     preserves = "|".join(app.donnees_preservees)
-    relance = "|".join(app.arguments_relance)
+    fichier_relance = prep.staging_root / "relance.txt"
+    try:
+        fichier_relance.write_text("\n".join("\t".join(ligne) for ligne in processus) + "\n",
+                                   encoding="utf-8", newline="\n")
+    except OSError as erreur:
+        raise _echec("helper_failed", detail=str(erreur)) from erreur
+    relance = str(fichier_relance)
 
     try:
         if disp.system == "Windows":
@@ -673,7 +736,7 @@ def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None]
                         "-DataRelative", commun[6], "-ExecutableRelative", commun[7],
                         "-ReadyFile", str(pret), "-GoFile", str(feu_vert),
                         "-LogFile", str(journal), "-Preserved", preserves,
-                        "-RelaunchArgs", relance, "-WindowStyle", app.fenetre]
+                        "-RelaunchFile", relance, "-WindowStyle", app.fenetre]
             # CREATE_NO_WINDOW seul : une console est bien créée, juste invisible,
             # contrairement à DETACHED_PROCESS (aucune console du tout) qui rendait
             # ce lancement de PowerShell erratique (parfois 15 s à démarrer, parfois
@@ -781,8 +844,10 @@ class Installateur:
     def __init__(self, app: Application, depot: str, verificateur,
                  construire: Callable[[], Disposition], *, quitter: Callable[[], None],
                  ouvrir: Callable = urllib.request.urlopen, contexte=None,
-                 ecrire: Callable[[str], None] = print):
+                 ecrire: Callable[[str], None] = print,
+                 verbes_relance: Optional[Callable[[], Sequence[Sequence[str]]]] = None):
         self.app = app
+        self.verbes_relance = verbes_relance
         self.depot = depot
         self.verificateur = verificateur
         self.construire = construire
@@ -849,7 +914,9 @@ class Installateur:
 
             prep = preparer(self.app, info, self.depot, disp, ouvrir=self.ouvrir,
                             contexte=self.contexte, progression=progression)
-            lancer(self.app, prep, ecrire=self.ecrire)
+            # Ce qui tourne est noté à l'instant de la mise à jour, pas avant.
+            verbes = self.verbes_relance() if self.verbes_relance is not None else None
+            lancer(self.app, prep, ecrire=self.ecrire, verbes=verbes)
             valider(prep, ecrire=self.ecrire)
         except Exception as erreur:
             if prep is not None:
@@ -1220,3 +1287,34 @@ def finaliser(installe: Path, neuf: Path, elements: Sequence[str], *,
     dire("installe_dans", False, installe=installe)
     relancer(etat)
     return 0
+
+
+def relancer_verbes(executable: Path, verbes: Sequence[Sequence[str]], *,
+                    demarrer: Optional[Callable] = None, cwd: Optional[Path] = None,
+                    env: Optional[dict] = None, par_defaut: Sequence[str] = ()) -> list:
+    """Relance un processus par entrée de `verbes` (chacune la liste d'arguments
+    de l'exécutable), détachés de celui-ci, et rend les lignes de commande
+    lancées. Sans verbes, un seul processus avec `par_defaut`.
+
+    `demarrer(commande, **options)` : l'application peut fournir le sien (celui de
+    blink2video sait détacher proprement sous chaque système) ; à défaut, Popen
+    sans console ni entrée, dans une nouvelle session sous POSIX (CREATE_NO_WINDOW
+    seul sous Windows, jamais avec DETACHED_PROCESS)."""
+    def detacher(commande, **options):
+        drapeaux = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        if os.name == "nt":
+            options["creationflags"] = drapeaux
+        else:
+            options["start_new_session"] = True
+        return subprocess.Popen(commande, **options)
+
+    lancer_processus = demarrer or detacher
+    lignes = [list(v) for v in verbes] or [list(par_defaut)]
+    lancees = []
+    for arguments in lignes:
+        commande = [str(executable), *[str(a) for a in arguments]]
+        lancer_processus(commande, cwd=str(cwd) if cwd else None, env=env,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        lancees.append(commande)
+    return lancees
