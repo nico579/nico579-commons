@@ -183,6 +183,46 @@ class EcrireJson(Base):
         self.assertIsInstance(atomique.lire_json(chemin, None), dict)
         self.assertEqual([p.name for p in self.dossier.iterdir()], ["x.json"])
 
+    def test_ecrivains_d_un_meme_processus_passent_l_un_apres_l_autre(self):
+        # Sémantique Windows simulée partout : remplacer une cible qu'un autre
+        # fil remplace au même instant est refusé. Sans verrou par fichier,
+        # quatre écrivains épuisaient leurs dix tentatives sous charge.
+        chemin = self.dossier / "x.json"
+        vrai = os.replace
+        en_cours = set()
+        garde = threading.Lock()
+
+        def facon_windows(source, cible):
+            with garde:
+                if os.fspath(cible) in en_cours:
+                    raise PermissionError(13, "Access is denied")
+                en_cours.add(os.fspath(cible))
+            try:
+                time.sleep(0.002)
+                return vrai(source, cible)
+            finally:
+                with garde:
+                    en_cours.discard(os.fspath(cible))
+
+        erreurs = []
+        depart = threading.Barrier(6)
+
+        def ecrire():
+            depart.wait()
+            for j in range(40):
+                try:
+                    atomique.ecrire_json(chemin, {"j": j})
+                except Exception as exc:  # pragma: no cover - échec du test
+                    erreurs.append(exc)
+
+        with mock.patch.object(atomique.os, "replace", facon_windows):
+            fils = [threading.Thread(target=ecrire) for _ in range(6)]
+            for f in fils:
+                f.start()
+            for f in fils:
+                f.join()
+        self.assertEqual(erreurs, [])
+
 
 class VerrouInterProcessus(Base):
     def test_exclusion_entre_fils(self):
