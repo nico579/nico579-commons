@@ -186,7 +186,7 @@ def _macos(nom, commande, dossier, simulation, langue, dossier_bureau, lancer, e
 _RESERVES_EXEC = frozenset(" \t\n\"'\\><~|&;$*?#()`")
 
 
-def argument_exec(argument: str) -> str:
+def _argument_exec(argument: str) -> str:
     """Un argument écrit pour la clé Exec d'un fichier .desktop.
 
     Ce n'est pas la syntaxe d'un shell : shlex.quote() entoure d'apostrophes,
@@ -210,7 +210,7 @@ def argument_exec(argument: str) -> str:
 def contenu_desktop(nom: str, commande: Sequence[str], dossier: Path,
                     icone: Optional[Path] = None, terminal: bool = False) -> str:
     """Le fichier .desktop (Linux), séparé pour les tests."""
-    exec_ligne = " ".join(argument_exec(str(a)) for a in commande)
+    exec_ligne = " ".join(_argument_exec(str(a)) for a in commande)
     chemin_travail = str(dossier).replace("\\", "\\\\")
     lignes = ["[Desktop Entry]", "Type=Application", f"Name={nom}",
               f"Exec={exec_ligne}", f"Path={chemin_travail}"]
