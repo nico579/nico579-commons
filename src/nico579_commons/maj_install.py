@@ -685,6 +685,17 @@ def processus_a_relancer(app: Application,
     return [[str(a) for a in app.arguments_relance]]
 
 
+def _ecrire_relance(dossier: Path, processus: Sequence[Sequence[str]]) -> Path:
+    """Le fichier de relance lu par l'assistant : un processus par ligne, ses
+    arguments séparés par une tabulation, fins de ligne « \n » même sous Windows.
+    open() et non Path.write_text(newline=...) : ce paramètre n'existe qu'à partir
+    de Python 3.10, et l'édition Windows 7 est en 3.8."""
+    fichier = Path(dossier) / "relance.txt"
+    with fichier.open("w", encoding="utf-8", newline="\n") as flux:
+        flux.write("\n".join("\t".join(ligne) for ligne in processus) + "\n")
+    return fichier
+
+
 def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None] = print,
            verbes: Optional[Sequence[Sequence[str]]] = None) -> None:
     """Démarre l'assistant, vérifie qu'il est prêt, puis rend la main à
@@ -717,13 +728,10 @@ def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None]
               str(prep.staging_root), str(prep.backup_root), str(prep.failed_root),
               str(disp.data_relative), str(disp.executable_relative)]
     preserves = "|".join(app.donnees_preservees)
-    fichier_relance = prep.staging_root / "relance.txt"
     try:
-        fichier_relance.write_text("\n".join("\t".join(ligne) for ligne in processus) + "\n",
-                                   encoding="utf-8", newline="\n")
+        relance = str(_ecrire_relance(prep.staging_root, processus))
     except OSError as erreur:
         raise _echec("helper_failed", detail=str(erreur)) from erreur
-    relance = str(fichier_relance)
 
     try:
         if disp.system == "Windows":

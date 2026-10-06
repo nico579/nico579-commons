@@ -637,11 +637,13 @@ class VerbesDeRelance(Base):
     def test_le_fichier_de_relance_porte_un_processus_par_ligne(self):
         prep_dossier = self.racine / "prep"
         prep_dossier.mkdir()
-        fichier = prep_dossier / "relance.txt"
-        fichier.write_text("\n".join("\t".join(l) for l in [["start"], ["watch", "--loop", "60"]]) + "\n",
-                           encoding="utf-8", newline="\n")
-        lignes = fichier.read_text(encoding="utf-8").splitlines()
-        self.assertEqual([l.split("\t") for l in lignes], [["start"], ["watch", "--loop", "60"]])
+        fichier = mi._ecrire_relance(prep_dossier, [["start"], ["watch", "--loop", "60"]])
+        octets = fichier.read_bytes()
+        # Fins de ligne « \n » seules, même sous Windows (l'assistant les lit telles quelles).
+        self.assertNotIn(b"\r", octets)
+        lignes = octets.decode("utf-8").split("\n")
+        self.assertEqual(lignes[-1], "")
+        self.assertEqual([l.split("\t") for l in lignes[:-1]], [["start"], ["watch", "--loop", "60"]])
 
 
 class ArchiveStandard(unittest.TestCase):
