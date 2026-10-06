@@ -314,13 +314,13 @@ def faux_programme(dossier: Path, version: str, *, meurt_aussitot: bool) -> str:
     nom relatif. Il tourne ~10 s s'il ne « meurt aussitôt »."""
     if WINDOWS:
         nom = "app.cmd"
-        corps = f"@echo off\r\necho {version} %* >> \"%~dp0demarre-{version}.txt\"\r\n"
+        corps = f"@echo off\r\necho {version} %* > \"%~dp0demarre-{version}-%1.txt\"\r\n"
         if not meurt_aussitot:
             corps += "ping -n 10 127.0.0.1 >nul\r\n"
         (dossier / nom).write_text(corps)
     else:
         nom = "app"
-        corps = f"#!/bin/sh\necho \"{version} $*\" >> \"$(dirname \"$0\")/demarre-{version}.txt\"\n"
+        corps = f"#!/bin/sh\necho \"{version} $*\" > \"$(dirname \"$0\")/demarre-{version}-$1.txt\"\n"
         if not meurt_aussitot:
             corps += "sleep 10\n"
         (dossier / nom).write_text(corps)
@@ -362,8 +362,9 @@ class AssistantReel(Base):
         install, staging = self.lancer_scenario(nouvelle_meurt=False)
         # Le faux programme de la nouvelle version a le même nom que l'ancien :
         # le contenu de « exemple/ » est donc celui du bundle de la nouvelle.
-        self.assertTrue(self.attendre(lambda: (install / "demarre-nouvelle.txt").exists()),
-                        "la nouvelle version n'a pas été relancée")
+        self.assertTrue(self.attendre(lambda: (install / "demarre-nouvelle---ouvrir.txt").exists()
+                                      and (install / "demarre-nouvelle-watch.txt").exists()),
+                        "la nouvelle version n'a pas été relancée (deux processus attendus)")
         self.assertTrue(self.attendre(lambda: not staging.exists()),
                         "l'assistant n'a pas nettoyé son dossier")
         self.assertFalse((self.racine / ".exemple.backup-t0k3n").exists())
@@ -371,19 +372,15 @@ class AssistantReel(Base):
         self.assertEqual((install / "config.json").read_text(), '{"reglage": 1}')
         self.assertEqual((install / "state" / "etat.json").read_text(), "[1]")
         # Relancée une fois par processus demandé, chacun avec ses arguments.
-        self.assertTrue(self.attendre(lambda: len((install / "demarre-nouvelle.txt")
-                                                  .read_text().split("\n")) >= 3))
-        lignes = [l.strip() for l in (install / "demarre-nouvelle.txt").read_text().splitlines()
-                  if l.strip()]
-        self.assertEqual(len(lignes), 2, lignes)
-        self.assertTrue(any("--ouvrir" in l for l in lignes), lignes)
-        self.assertTrue(any("watch --loop 60" in l for l in lignes), lignes)
-        self.assertFalse((install / "demarre-ancienne.txt").exists())
+        self.assertIn("--ouvrir", (install / "demarre-nouvelle---ouvrir.txt").read_text())
+        self.assertIn("watch --loop 60", (install / "demarre-nouvelle-watch.txt").read_text())
+        self.assertEqual([p.name for p in install.glob("demarre-ancienne*")], [])
 
     def test_nouvelle_version_qui_meurt_remet_l_ancienne(self):
         install, staging = self.lancer_scenario(nouvelle_meurt=True)
-        self.assertTrue(self.attendre(lambda: (install / "demarre-ancienne.txt").exists()),
-                        "l'ancienne version n'a pas été relancée après l'échec")
+        self.assertTrue(self.attendre(lambda: (install / "demarre-ancienne---ouvrir.txt").exists()
+                                      and (install / "demarre-ancienne-watch.txt").exists()),
+                        "l'ancienne version n'a pas été relancée après l'échec (deux processus)")
         self.assertTrue(self.attendre(lambda: any(
             p.name.startswith(".exemple.failed-") for p in self.racine.iterdir())))
         # L'ancienne installation est intacte, avec ses données.
@@ -622,19 +619,20 @@ class VerbesDeRelance(Base):
 
     def test_relancer_verbes_sans_demarreur_detache_vraiment(self):
         # Un vrai processus (python qui écrit son argument), détaché.
-        sortie = self.racine / "sortie.txt"
         programme = self.racine / "ecrit.py"
-        programme.write_text("import sys; open(sys.argv[1], 'a').write(sys.argv[2] + '\\n')")
+        programme.write_text("import sys; open(sys.argv[1] + '.' + sys.argv[2], 'w').write(sys.argv[2])")
+        sortie = self.racine / "sortie"
         with warnings.catch_warnings():
             # Détachés exprès : personne n'attend ces processus.
             warnings.simplefilter("ignore", ResourceWarning)
             mi.relancer_verbes(Path(sys.executable), [[str(programme), str(sortie), "un"],
                                                       [str(programme), str(sortie), "deux"]])
         fin = time.monotonic() + 30
-        while time.monotonic() < fin and (not sortie.exists()
-                                          or len(sortie.read_text().split()) < 2):
+        while time.monotonic() < fin and not (
+                (self.racine / "sortie.un").exists() and (self.racine / "sortie.deux").exists()):
             time.sleep(0.2)
-        self.assertEqual(sorted(sortie.read_text().split()), ["deux", "un"])
+        self.assertEqual((self.racine / "sortie.un").read_text(), "un")
+        self.assertEqual((self.racine / "sortie.deux").read_text(), "deux")
 
     def test_le_fichier_de_relance_porte_un_processus_par_ligne(self):
         prep_dossier = self.racine / "prep"
