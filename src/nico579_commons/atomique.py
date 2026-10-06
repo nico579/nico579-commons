@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -27,6 +28,19 @@ PAUSE_REFUS_S = 0.05
 # Fichiers annexes d'une base SQLite en cours d'écriture : un chemin de
 # staging neuf ne doit hériter d'aucun reste des précédents.
 SUFFIXES_ANNEXES = ("", "-wal", "-shm", "-journal")
+
+# Un verrou par fichier pour les écrivains d'un même processus (les fils d'un
+# serveur HTTP) : sous Windows, deux remplacements simultanés de la même cible
+# se refusent l'un l'autre, et les quelques nouvelles tentatives de
+# remplacer() ne suffisent pas toujours sous forte charge (162 refus sur 600
+# écritures en CI avant que blink2video ne les fasse passer l'un après l'autre).
+_VERROUS_ECRITURE: dict = {}
+_VERROU_TABLE = threading.Lock()
+
+
+def _verrou_ecriture(chemin: Path) -> threading.Lock:
+    with _VERROU_TABLE:
+        return _VERROUS_ECRITURE.setdefault(os.path.abspath(chemin), threading.Lock())
 
 
 def lire_json(path, defaut, *, tolerer_corrompu=True):
@@ -147,6 +161,7 @@ def ecrire_json(chemin, donnees, indent=2) -> None:
     try:
         temporaire.write_text(json.dumps(donnees, ensure_ascii=False, indent=indent),
                               encoding="utf-8")
-        remplacer(temporaire, chemin)
+        with _verrou_ecriture(chemin):
+            remplacer(temporaire, chemin)
     finally:
         temporaire.unlink(missing_ok=True)
