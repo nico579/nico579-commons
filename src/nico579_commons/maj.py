@@ -17,6 +17,7 @@ import re
 import threading
 import time
 import urllib.request
+from pathlib import Path
 from typing import Callable, Optional
 
 
@@ -39,7 +40,8 @@ class Verificateur:
     de `veiller()` le font."""
 
     def __init__(self, depot: str, version_locale: str, *, fraicheur_s: float = 3600,
-                 delai_s: float = 10, ouvrir: Optional[Callable[[str], dict]] = None):
+                 delai_s: float = 10, ouvrir: Optional[Callable[[str], dict]] = None,
+                 cache: Optional[Path] = None):
         self.depot = depot
         self.version_locale = str(version_locale).lstrip("vV")
         self.fraicheur_s = fraicheur_s
@@ -48,6 +50,40 @@ class Verificateur:
         self._derniere: Optional[dict] = None
         self._verifie_a: Optional[float] = None
         self._verrou = threading.Lock()
+        # Dernière réponse gardée sur disque : une mise à jour signalée hier
+        # reste vraie au démarrage suivant, même hors ligne.
+        self._cache = Path(cache) if cache else None
+        self._lire_cache()
+
+    @property
+    def verifie_a(self) -> Optional[float]:
+        """Heure (time.time) de la dernière réponse de GitHub, ou None."""
+        return self._verifie_a
+
+    def _lire_cache(self) -> None:
+        if self._cache is None:
+            return
+        try:
+            donnees = json.loads(self._cache.read_text(encoding="utf-8"))
+            version = str(donnees["version"])
+            verifie = float(donnees["verifie"])
+            fichiers = donnees.get("assets") or []
+            page = str(donnees.get("page") or self.page_des_releases)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return
+        if version and isinstance(fichiers, list):
+            self._derniere = {"version": version, "page": page, "assets": fichiers}
+            self._verifie_a = verifie
+
+    def _ecrire_cache(self) -> None:
+        if self._cache is None or self._derniere is None:
+            return
+        try:
+            from . import atomique
+            atomique.ecrire_json(self._cache, dict(self._derniere, verifie=self._verifie_a),
+                                 indent=None)
+        except OSError:
+            pass   # le cache n'est qu'un confort
 
     @property
     def page_des_releases(self) -> str:
@@ -74,6 +110,7 @@ class Verificateur:
         with self._verrou:
             self._derniere = {"version": version, "page": page, "assets": fichiers}
             self._verifie_a = time.time()
+        self._ecrire_cache()
         return True
 
     def disponible(self) -> Optional[dict]:
