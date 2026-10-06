@@ -50,6 +50,13 @@ FICHIERS_STATIQUES = {
 }
 
 
+def entrees_confiance(valeur: str) -> list:
+    """Entrées de trusted_host : une liste séparée par des virgules, chacune un
+    nom d'hôte exact, une IP ou un sous-réseau CIDR. Une valeur unique reste
+    une liste d'un."""
+    return [entree.strip() for entree in (valeur or "").split(",") if entree.strip()]
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -74,36 +81,92 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ sécurité
 
+    def _journaliser_acces_refuse(self, raison: str) -> None:
+        """Appelé à chaque refus de hote_autorise() avec la raison, pour
+        qu'une application garde une trace (un trusted_host mal renseigné ne
+        laisse sinon qu'un 403 muet). Ne fait rien par défaut."""
+
+    @staticmethod
+    def _hote_correspond(hote: str, hote_confiance: str) -> bool:
+        """Vrai si `hote` (Host ou Origin, déjà réduit au hostname) est couvert
+        par l'une des entrées de `hote_confiance`.
+
+        Chaque entrée (liste séparée par des virgules : un seul nom ou un seul
+        sous-réseau ne suffit pas pour mêler accès direct et iframe) est soit
+        une IP ou un nom d'hôte exact (comparaison de chaîne), soit un
+        sous-réseau CIDR (192.168.1.0/24 : un client Windows en DHCP n'a pas
+        d'adresse fixe). ip_network(..., strict=False) tolère qu'on y colle
+        l'adresse d'une machine du réseau (192.168.1.5/24), erreur de saisie
+        probable et sans ambiguïté. Jamais de ValueError : un hôte ou un CIDR
+        mal formé se traite comme « pas de correspondance »."""
+        for entree in entrees_confiance(hote_confiance):
+            if "/" in entree:
+                try:
+                    if ipaddress.ip_address(hote) in ipaddress.ip_network(entree, strict=False):
+                        return True
+                except ValueError:
+                    continue
+            elif hote == entree:
+                return True
+        return False
+
     def hote_autorise(self) -> bool:
         """Faux si Host (déclaré par le client) ne désigne pas cette machine,
-        si l'adresse TCP réelle du client n'est ni la boucle locale ni le
-        trusted_host, ou si Origin (quand le navigateur l'envoie) diffère.
-        Aucune authentification de compte : seule la provenance compte."""
+        si l'adresse TCP réelle du client n'est ni la boucle locale, ni un
+        proxy local admis, ni couverte par trusted_host, ou si Origin (quand
+        le navigateur l'envoie) diffère. Aucune authentification de compte :
+        seule la provenance compte, et le seul rempart contre une page tierce
+        qui actionnerait l'API à l'insu de qui la visite. Un client HTTP
+        quelconque (tests, curl local) n'envoie pas Origin : seul Host,
+        toujours présent, est alors regardé.
+
+        trusted_host : une liste d'entrées séparées par des virgules, chacune
+        un nom d'hôte, une IP ou un sous-réseau CIDR (cf. _hote_correspond).
+        Ce réglage relâche Host lui-même : la garantie ne vient plus de la
+        boucle locale mais du réseau auquel on se lie (tunnel privé, LAN) ;
+        un sous-réseau est un choix à assumer pour un LAN de confiance, jamais
+        pour un tunnel qui doit rester aussi étroit qu'une seule machine. N'a
+        de sens qu'avec une liaison sur cette adresse précise, jamais
+        0.0.0.0. Chaque refus est signalé à _journaliser_acces_refuse()."""
         hote_confiance = (self.trusted_host or "").strip()
-        hotes_valides = self._HOTES_LOCAUX + ((hote_confiance,) if hote_confiance else ())
         hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
-        if hote not in hotes_valides:
+        hote_est_local = hote in self._HOTES_LOCAUX
+        hote_est_confiance = self._hote_correspond(hote, hote_confiance)
+        if not hote_est_local and not hote_est_confiance:
+            self._journaliser_acces_refuse(
+                f"Host {hote!r} ni local, ni couvert par trusted_host {hote_confiance!r}")
             return False
+        # Host est fourni par le client et se forge avec curl : il ne constitue
+        # pas une frontière réseau à lui seul. Hors proxy local ou tunnel de
+        # confiance, seule une vraie adresse cliente de boucle locale est admise.
         client = str(getattr(self, "client_address", ("127.0.0.1", 0))[0])
         try:
             boucle_locale = ipaddress.ip_address(client).is_loopback
         except ValueError:
             boucle_locale = False
-        proxy_local = bool(self.variable_proxy_local) and \
-            os.environ.get(self.variable_proxy_local) == "1"
-        tunnel_direct = bool(hote_confiance) and hote == hote_confiance
-        if not boucle_locale and not proxy_local and not tunnel_direct:
+        proxy_local = bool(self.variable_proxy_local) and             os.environ.get(self.variable_proxy_local) == "1"
+        if not boucle_locale and not proxy_local and not hote_est_confiance:
+            self._journaliser_acces_refuse(
+                f"ni boucle locale (IP cliente {client!r}), ni "
+                f"{self.variable_proxy_local or 'proxy local'}, ni trusted_host "
+                f"(Host {hote!r}, trusted_host {hote_confiance!r})")
             return False
         origine = self.headers.get("Origin")
         if origine:
             # ValueError sur une Origin manifestement invalide (IPv6 mal
-            # fermée, ex. "http://[abc") : refuser plutôt que laisser
+            # fermée, ex. « http://[abc ») : refuser plutôt que laisser
             # urlparse planter la requête.
             try:
                 origine_hote = urlparse(origine).hostname
             except ValueError:
                 origine_hote = None
-            if origine_hote not in hotes_valides:
+            origine_ok = origine_hote is not None and (
+                origine_hote in self._HOTES_LOCAUX
+                or self._hote_correspond(origine_hote, hote_confiance))
+            if not origine_ok:
+                self._journaliser_acces_refuse(
+                    f"Origin {origine!r} (hostname {origine_hote!r}) "
+                    f"ni local, ni couvert par trusted_host {hote_confiance!r}")
                 return False
         return True
 
