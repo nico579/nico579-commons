@@ -188,5 +188,63 @@ class Maj(unittest.TestCase):
         self.assertEqual(v.disponible()["version"], "1.6.3")
 
 
+class CacheDisque(unittest.TestCase):
+    """Une mise à jour signalée hier reste vraie au démarrage suivant, même hors ligne."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cache = Path(self._tmp.name) / "sous" / "maj.json"
+
+    def verificateur(self, reponse, locale="1.6.2"):
+        def ouvrir(url):
+            if isinstance(reponse, Exception):
+                raise reponse
+            return reponse
+        return maj.Verificateur("nico579/gpxsolar", locale, ouvrir=ouvrir, cache=self.cache)
+
+    def test_la_reponse_survit_au_redemarrage_hors_ligne(self):
+        premier = self.verificateur({"tag_name": "v1.6.3", "html_url": "https://x/r",
+                                     "assets": [{"name": "a.zip", "size": 1}]})
+        self.assertTrue(premier.verifier())
+        self.assertTrue(self.cache.is_file())
+
+        hors_ligne = self.verificateur(OSError("hors ligne"))
+        self.assertEqual(hors_ligne.disponible()["version"], "1.6.3")
+        self.assertEqual(hors_ligne.disponible()["assets"][0]["name"], "a.zip")
+        self.assertAlmostEqual(hors_ligne.verifie_a, premier.verifie_a, places=3)
+        self.assertFalse(hors_ligne.verifier())                    # injoignable, et on le sait
+        self.assertEqual(hors_ligne.disponible()["version"], "1.6.3")   # ce qu'on savait
+
+    def test_cache_illisible_ou_incomplet_est_ignore(self):
+        self.cache.parent.mkdir(parents=True)
+        for contenu in ("pas du json", "[]", '{"version": "1.6.3"}', '{"verifie": "x", "version": "1"}'):
+            self.cache.write_text(contenu, encoding="utf-8")
+            with self.subTest(contenu=contenu):
+                v = self.verificateur(OSError("hors ligne"))
+                self.assertIsNone(v.disponible())
+                self.assertIsNone(v.verifie_a)
+
+    def test_ancien_cache_sans_fichiers_reste_utilisable(self):
+        self.cache.parent.mkdir(parents=True)
+        self.cache.write_text('{"verifie": 1.0, "version": "1.6.3", "page": "https://x/r"}',
+                              encoding="utf-8")
+        v = self.verificateur(OSError("hors ligne"))
+        self.assertEqual(v.disponible(), {"version": "1.6.3", "page": "https://x/r", "assets": []})
+
+    def test_un_cache_non_inscriptible_ne_fait_pas_echouer(self):
+        self.cache.parent.mkdir(parents=True)
+        self.cache.mkdir()    # un dossier à la place du fichier : l'écriture échoue
+        v = self.verificateur({"tag_name": "v1.6.3"})
+        self.assertTrue(v.verifier())
+        self.assertEqual(v.disponible()["version"], "1.6.3")
+
+    def test_sans_cache_rien_n_est_ecrit(self):
+        v = maj.Verificateur("nico579/gpxsolar", "1.6.2", ouvrir=lambda url: {"tag_name": "v1.6.3"})
+        self.assertTrue(v.verifier())
+        self.assertFalse(self.cache.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

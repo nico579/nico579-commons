@@ -173,6 +173,20 @@ spécification Desktop Entry (sans `sh -c`), fichier marqué de confiance
 « Untrusted Desktop File ». Branché sur gpxsolar, lidar2map et watch2notif,
 qui perdent leurs copies locales.
 
+0.4.2 (2026-10-06) : la logique de mise à jour devient commune. `maj_archive`
+fusionne ce que blink2video (maj.py) et watch2notif (self_update.py) faisaient
+chacun de leur côté : choix de l'unique fichier finalisé de la release, URL liée
+au dépôt et au format de tag, redirections limitées à GitHub, téléchargement
+publié seulement après taille et SHA-256, extraction refusant traversée, liens
+vers l'extérieur, noms non portables, collisions de casse et bombes de
+décompression. `maj.Verificateur` gagne `cache=` (la dernière réponse survit au
+redémarrage, hors ligne comprise) et `verifie_a`. `serveweb.Handler.hote_autorise`
+reprend la garde complète de blink2video : trusted_host en liste ou en sous-réseaux
+CIDR, Origin comparée aux mêmes entrées, trace des refus (`_journaliser_acces_refuse`).
+Reste propre à chaque application : la permutation de l'installation avec retour
+arrière et la relance (dossier échangé chez blink2video, assistant externe chez
+watch2notif), qui dépendent de la façon dont l'application est livrée.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
