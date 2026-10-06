@@ -367,6 +367,8 @@ class AssistantReel(Base):
 
 
 class FauxVerificateur:
+    page_des_releases = "https://github.com/nico579/exemple/releases/latest"
+
     def __init__(self, info):
         self.info = info
         self.verifications = 0
@@ -379,9 +381,8 @@ class FauxVerificateur:
         return self.info
 
 
-class InstallateurTests(Base):
-    """L'orchestration, sans réseau ni assistant : preparer, lancer et valider
-    sont remplacés, on vérifie l'enchaînement, l'état et le nettoyage."""
+class BaseInstallateur(Base):
+    """preparer, lancer et valider remplacés : pas de réseau, pas d'assistant."""
 
     def setUp(self):
         super().setUp()
@@ -424,6 +425,9 @@ class InstallateurTests(Base):
         self.assertTrue(installateur.demarrer())
         installateur.attendre(10)
         return installateur.etat()
+
+class InstallateurTests(BaseInstallateur):
+    """L'orchestration : l'enchaînement, l'état et le nettoyage."""
 
     def test_enchainement_complet_puis_arret(self):
         self.patches()
@@ -537,6 +541,92 @@ class InstallateurTests(Base):
         self.assertEqual(self.installateur(construire=lambda: mi.disposition(
             APP, asset_name="a", archive_kind="zip", racine_attendue="a", fige=False)).possible(),
             (False, "source_mode"))
+
+
+class ArchiveStandard(unittest.TestCase):
+    def test_convention_de_gpxsolar_et_lidar2map(self):
+        cas = (("Windows", "AMD64", ("a-windows-x86_64.zip", "zip", "a-windows-x86_64")),
+               ("Linux", "x86_64", ("a-linux-x86_64.tar.gz", "tar", "a-linux-x86_64")),
+               ("Darwin", "arm64", ("a-macos-arm64.zip", "zip", "A.app")),
+               ("Darwin", "x86_64", ("a-macos-x86_64.zip", "zip", "A.app")))
+        for systeme, machine, attendu in cas:
+            with self.subTest(systeme=systeme, machine=machine):
+                self.assertEqual(mi.archive_standard("a", racine_macos="A.app", systeme=systeme,
+                                                     machine=machine), attendu)
+
+    def test_systemes_non_publies_refuses(self):
+        for systeme, machine in (("Linux", "aarch64"), ("Windows", "arm64"), ("FreeBSD", "x86_64")):
+            with self.subTest(systeme=systeme, machine=machine), \
+                    self.assertRaises(maj_archive.ErreurMiseAJour) as c:
+                mi.archive_standard("a", racine_macos="A.app", systeme=systeme, machine=machine)
+            self.assertEqual(c.exception.code, "unsupported_target")
+
+
+class RoutesBandeau(BaseInstallateur):
+    """/api/maj et /api/maj-installer : ce que lit et déclenche le bandeau."""
+
+    def routes(self, info="defaut", langue="fr", **options):
+        self.patches(**options)
+        installateur = self.installateur(info=info)
+        get, post = mi.routes(installateur, lambda: langue)
+        return installateur, get["maj"], post["maj-installer"]
+
+    def test_version_disponible_et_possibilite(self):
+        installateur, etat, _ = self.routes(info={"version": "9.1.0", "page": "https://x/r", "assets": []})
+        d = etat()
+        self.assertEqual((d["version"], d["page"], d["possible"], d["raison"]),
+                         ("9.1.0", "https://x/r", True, ""))
+        self.assertEqual(d["etat"]["etat"], "inactif")
+        self.assertIn("{version}", d["libelles"]["disponible"])
+
+    def test_rien_de_nouveau(self):
+        _, etat, _ = self.routes(info=None)
+        d = etat()
+        self.assertIsNone(d["version"])
+        self.assertEqual(d["etat"]["etat"], "inactif")
+
+    def test_langue_de_l_application_et_repli_anglais(self):
+        _, etat, _ = self.routes(langue="en")
+        self.assertEqual(etat()["libelles"]["installer"], "Install")
+        _, etat, _ = self.routes(langue="de")           # langue inconnue : anglais
+        self.assertEqual(etat()["libelles"]["installer"], "Install")
+        _, etat, _ = self.routes(langue="FR-ca")
+        self.assertEqual(etat()["libelles"]["installer"], "Installer")
+
+    def test_installer_demarre_et_l_etat_le_montre(self):
+        installateur, etat, installer = self.routes()
+        self.assertEqual(installer({}), {"ok": True})
+        installateur.attendre(10)
+        self.assertEqual(etat()["etat"]["etat"], "redemarrage")
+        self.assertEqual(self.quitte, [True])
+
+    def test_deuxieme_demande_pendant_l_installation(self):
+        import threading
+        porte = threading.Event()
+        installateur, _, installer = self.routes(preparer=lambda *a, **k: (porte.wait(5), self.prep)[1])
+        self.assertEqual(installer({}), {"ok": True})
+        self.assertEqual(installer({}), {"ok": False})
+        porte.set()
+        installateur.attendre(10)
+
+    def test_erreur_dans_la_langue_de_l_application(self):
+        def echoue(*a, **k):
+            raise maj_archive.ErreurMiseAJour("helper_failed", detail="pas prêt")
+
+        installateur, etat, installer = self.routes(langue="en", lancer=echoue)
+        installer({})
+        installateur.attendre(10)
+        d = etat()
+        self.assertEqual(d["etat"]["etat"], "erreur")
+        self.assertEqual(d["etat"]["erreur"]["message"], "The update helper failed: pas prêt")
+
+    def test_installation_impossible_depuis_les_sources(self):
+        self.patches()
+        installateur = self.installateur(construire=lambda: mi.disposition(
+            APP, asset_name="a", archive_kind="zip", racine_attendue="a", fige=False))
+        get, _ = mi.routes(installateur)
+        d = get["maj"]()
+        self.assertEqual((d["possible"], d["raison"]), (False, "source_mode"))
 
 
 if __name__ == "__main__":

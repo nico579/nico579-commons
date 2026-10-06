@@ -40,6 +40,7 @@ from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
 PREFIXE_API = "/api/"
+ROUTE_BANDEAU_MAJ = "/nico579-maj.js"
 
 # Route -> (fichier dans gui_dir, type de contenu). Les fichiers absents
 # répondent 404 : une application sans web_bridge.js n'a rien à retirer.
@@ -230,6 +231,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/":
             self.send_index()
+            return
+        if route == ROUTE_BANDEAU_MAJ:
+            # Bandeau de mise à jour commun (maj_install.routes en fournit l'API).
+            self.send_static(Path(__file__).with_name("maj_banniere.js"),
+                             "text/javascript; charset=utf-8")
             return
         statique = self.fichiers_statiques.get(route)
         if statique is not None:
