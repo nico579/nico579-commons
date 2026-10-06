@@ -207,9 +207,10 @@ def env_systemctl(environ=None, uid=None, racine: Path = Path("/run/user")) -> d
 # -------------------------------------------------------------- lancement
 
 def _lancer_par_defaut(commande, **options):
-    drapeaux = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-    if drapeaux:
-        options.setdefault("creationflags", drapeaux)
+    # CREATE_NO_WINDOW seul (0 hors Windows, valeur que subprocess accepte
+    # partout) : avec DETACHED_PROCESS, il serait ignoré, et une console
+    # clignoterait à chaque pose du raccourci.
+    options.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return subprocess.run(list(commande), **options)
 
 
