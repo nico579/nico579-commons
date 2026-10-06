@@ -341,5 +341,74 @@ class EcouteHoteConfiance(unittest.TestCase):
         self.assertIs(serveweb.EcouteHoteConfiance(1).handler, serveweb.Handler)
 
 
+class HotesDeConfiance(unittest.TestCase):
+    """trusted_host en liste ou en sous-réseau CIDR, Origin, et la trace des
+    refus : repris des tests de blink2video, d'où la garde est venue."""
+
+    handler = Provenance.handler
+
+    def refus(self, entetes, client, trusted_host=""):
+        traces = []
+        h = self.handler(entetes, client=client, trusted_host=trusted_host)
+        h._journaliser_acces_refuse = traces.append
+        return h.hote_autorise(), traces
+
+    def test_liste_separee_par_des_virgules(self):
+        for hote in ("100.64.1.2", "tablette.local"):
+            with self.subTest(hote=hote):
+                self.assertTrue(self.handler({"Host": hote}, client="100.64.9.9",
+                                             trusted_host="100.64.1.2, tablette.local").hote_autorise())
+        self.assertFalse(self.handler({"Host": "autre"}, client="100.64.9.9",
+                                      trusted_host="100.64.1.2, tablette.local").hote_autorise())
+
+    def test_sous_reseau_cidr(self):
+        reglage = "192.168.1.0/24"
+        for ip in ("192.168.1.5", "192.168.1.200"):
+            with self.subTest(ip=ip):
+                self.assertTrue(self.handler({"Host": ip, "Origin": f"http://{ip}"}, client=ip,
+                                             trusted_host=reglage).hote_autorise())
+        self.assertFalse(self.handler({"Host": "192.168.2.5"}, client="192.168.2.5",
+                                      trusted_host=reglage).hote_autorise())
+
+    def test_adresse_de_machine_collee_dans_le_cidr_est_toleree(self):
+        self.assertTrue(self.handler({"Host": "192.168.1.9"}, client="192.168.1.9",
+                                     trusted_host="192.168.1.5/24").hote_autorise())
+
+    def test_valeur_corrompue_ne_leve_jamais_et_refuse(self):
+        for reglage in ("not/a/cidr", "1.2.3.4/99", "[::"):
+            with self.subTest(reglage=reglage):
+                self.assertFalse(self.handler({"Host": "10.0.0.8"}, client="10.0.0.8",
+                                              trusted_host=reglage).hote_autorise())
+
+    def test_origin_doit_etre_locale_ou_de_confiance(self):
+        ok = self.handler({"Host": "100.64.1.2", "Origin": "http://100.64.1.2:8081"},
+                          client="100.64.9.9", trusted_host="100.64.1.2")
+        self.assertTrue(ok.hote_autorise())
+        for origine in ("http://evil.example", "null", "http://[abc"):
+            with self.subTest(origine=origine):
+                self.assertFalse(self.handler({"Host": "100.64.1.2", "Origin": origine},
+                                              client="100.64.9.9",
+                                              trusted_host="100.64.1.2").hote_autorise())
+
+    def test_chaque_refus_dit_pourquoi(self):
+        ok, traces = self.refus({"Host": "100.64.1.2"}, "100.64.9.9", trusted_host="10.9.9.9")
+        self.assertFalse(ok)
+        self.assertIn("Host '100.64.1.2' ni local, ni couvert par trusted_host", traces[-1])
+        ok, traces = self.refus({"Host": "127.0.0.1"}, "192.168.1.20")
+        self.assertFalse(ok)
+        self.assertIn("ni boucle locale (IP cliente '192.168.1.20')", traces[-1])
+        ok, traces = self.refus({"Host": "localhost", "Origin": "http://evil"}, "127.0.0.1")
+        self.assertFalse(ok)
+        self.assertIn("Origin 'http://evil'", traces[-1])
+        ok, traces = self.refus({"Host": "localhost"}, "127.0.0.1")
+        self.assertTrue(ok)
+        self.assertEqual(traces, [])
+
+    def test_entrees_confiance(self):
+        self.assertEqual(serveweb.entrees_confiance(" a, b ,,10.0.0.0/8 "), ["a", "b", "10.0.0.0/8"])
+        self.assertEqual(serveweb.entrees_confiance(""), [])
+        self.assertEqual(serveweb.entrees_confiance(None), [])
+
+
 if __name__ == "__main__":
     unittest.main()
