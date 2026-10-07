@@ -188,6 +188,77 @@ class Maj(unittest.TestCase):
         self.assertEqual(v.disponible()["version"], "1.6.3")
 
 
+class Veille(unittest.TestCase):
+    """veiller() ne redemande pas une réponse encore fraîche (cache disque d'un démarrage récent)."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cache = Path(self._tmp.name) / "maj.json"
+        self.appels = []
+
+    def verificateur(self, fraicheur_s=3600, reponse=None, avec_cache=True):
+        def ouvrir(url):
+            self.appels.append(url)
+            if reponse is None:
+                return {"tag_name": "v1.6.3"}
+            raise reponse
+        return maj.Verificateur("nico579/gpxsolar", "1.6.2", fraicheur_s=fraicheur_s, ouvrir=ouvrir,
+                                cache=self.cache if avec_cache else None)
+
+    def ecrire_cache(self, age_s):
+        import json
+        import time
+        self.cache.write_text(json.dumps({"version": "1.6.3", "page": "https://x/r", "assets": [],
+                                          "verifie": time.time() - age_s}), encoding="utf-8")
+
+    def veiller(self, v, duree_s):
+        arret = threading.Event()
+        fil = v.veiller(arret)
+        threading.Event().wait(duree_s)
+        arret.set()
+        fil.join(3)
+        self.assertFalse(fil.is_alive())
+
+    def test_une_reponse_fraiche_n_est_pas_redemandee(self):
+        self.ecrire_cache(60)                       # il y a une minute
+        v = self.verificateur()
+        self.veiller(v, 0.4)
+        self.assertEqual(self.appels, [])
+        self.assertEqual(v.disponible()["version"], "1.6.3")      # servie par le cache
+
+    def test_une_reponse_perimee_est_redemandee_tout_de_suite(self):
+        self.ecrire_cache(3600 + 10)
+        self.veiller(self.verificateur(), 0.4)
+        self.assertEqual(len(self.appels), 1)
+
+    def test_sans_reponse_connue_on_demande_tout_de_suite(self):
+        self.veiller(self.verificateur(avec_cache=False), 0.4)
+        self.assertEqual(len(self.appels), 1)
+
+    def test_le_reste_de_la_fraicheur_est_attendu_puis_on_redemande(self):
+        # Fraîcheur de 1 s, réponse vieille de 0,7 s : la question part dans ~0,3 s.
+        self.ecrire_cache(0.7)
+        v = self.verificateur(fraicheur_s=1.0)
+        self.veiller(v, 0.15)
+        self.assertEqual(self.appels, [])
+        self.veiller(v, 0.6)
+        self.assertEqual(len(self.appels), 1)
+
+    def test_une_reponse_datee_du_futur_est_perimee(self):
+        # Horloge revenue en arrière : la veille ne doit pas rester muette jusqu'à ce que
+        # l'heure rattrape la date du cache.
+        self.ecrire_cache(-3600)                    # « vérifié » dans une heure
+        self.veiller(self.verificateur(), 0.4)
+        self.assertEqual(len(self.appels), 1)
+
+    def test_hors_ligne_on_ne_reboucle_pas(self):
+        v = self.verificateur(fraicheur_s=0.4, reponse=OSError("hors ligne"), avec_cache=False)
+        self.veiller(v, 0.55)
+        self.assertLessEqual(len(self.appels), 3)    # une question, puis une par fraîcheur
+
+
 class CacheDisque(unittest.TestCase):
     """Une mise à jour signalée hier reste vraie au démarrage suivant, même hors ligne."""
 

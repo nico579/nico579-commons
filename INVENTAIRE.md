@@ -243,6 +243,13 @@ faisaient : leur bandeau de mise à jour réclamait un fichier absent (404). `re
 donne par défaut `stdout` et `stderr` à DEVNULL (un exécutable sans console relancé par
 « Redémarrer » plantait au premier print).
 
+0.4.9 (2026-10-07) : `Verificateur.veiller` ne redemande pas à GitHub une réponse encore
+fraîche (celle du cache disque d'un démarrage récent) : il attend ce qu'il reste de l'heure.
+Une réponse datée du futur (horloge revenue en arrière) est tenue pour périmée. C'est ce que
+faisait seule la boucle de blink2video (`veiller_sur_les_versions`), qui disparaît ; les trois
+autres applications donnent maintenant un `cache=` à leur `Verificateur`, et les quatre
+interrogent GitHub de la même façon : au plus une fois par heure, redémarrages compris.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
