@@ -226,6 +226,11 @@ en français et en anglais. Fusion des trois versions de lidar2map, gpxsolar et
 blink2video. Il tourne avant l'installation de ce paquet : chaque application en garde
 une copie octet pour octet (`_amorcage.py`), comparée au paquet installé par un test.
 
+0.4.7 (2026-10-07) : `serveweb.Handler.send_json` répond en UTF-8 lisible (accents en
+clair, `ensure_ascii=False`) et vide le tampon aussitôt, comme le faisait blink2video
+seul : son override disparaît. Les autres applications (watch2notif, qui appelle
+`send_json`) changent d'octets mais pas de sens : la page décode les deux de la même façon.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :

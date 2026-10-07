@@ -94,6 +94,20 @@ class Serveur(unittest.TestCase):
                                 ("/web_bridge.js", b"// pont")):
             self.assertEqual(requete(self.base + chemin), (200, attendu), chemin)
 
+    def test_json_en_utf8_lisible_avec_la_bonne_longueur(self):
+        # Le même contenu que blink2video écrivait : accents en clair, pas \u00e9, et
+        # Content-Length compté en octets UTF-8 (pas en caractères).
+        demande = urllib.request.Request(
+            self.base + "/api/echo", data=json.dumps({"nom": "Élodie ✓"}).encode("utf-8"),
+            method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(demande, timeout=10) as reponse:
+            corps = reponse.read()
+            self.assertEqual(reponse.headers["Content-Type"], "application/json; charset=utf-8")
+            self.assertEqual(int(reponse.headers["Content-Length"]), len(corps))
+        self.assertIn("Élodie ✓".encode("utf-8"), corps)
+        self.assertNotIn(b"\u00c9", corps)
+        self.assertEqual(json.loads(corps), {"recu": {"nom": "Élodie ✓"}})
+
     def test_icone_de_l_onglet_gardee_une_semaine(self):
         with urllib.request.urlopen(self.base + "/favicon.ico", timeout=10) as reponse:
             self.assertEqual(reponse.headers["Content-Type"], "image/x-icon")
