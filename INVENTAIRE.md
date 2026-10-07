@@ -268,3 +268,9 @@ interrogent GitHub de la même façon : au plus une fois par heure, redémarrage
 lu une fois au chargement : basculer FR/EN ne le changeait pas. `/api/maj` donne désormais les
 textes dans toutes les langues (`libelles_par_langue`) et `reglages.js` suit l'attribut `lang` de
 <html>, que les applications posent quand on bascule.
+
+0.4.11 (2026-10-07) : la case « Démarrer automatiquement avec le système » est commune.
+`demarrage.routes(entree, langue)` donne `GET /api/autostart` (état et textes) et
+`POST /api/autostart {"actif": …}` (agit tout de suite, rend l'état réel, l'erreur ou les
+avertissements dans la langue) : le contrat que blink2video avait déjà. `reglages.js` dessine la
+case dans le panneau Réglages quand la route existe, et la cache sinon.

@@ -466,6 +466,11 @@ class BandeauMaj(unittest.TestCase):
                         "window.nico579Reglages", "libelles"):
             self.assertIn(attendu, texte)
 
+    def test_le_panneau_dessine_la_case_de_demarrage_quand_la_route_existe(self):
+        texte = Path(serveweb.__file__).with_name("reglages.js").read_text(encoding="utf-8")
+        for attendu in ("/api/autostart", "ligneDemarrage", "lireDemarrage", "avertissements"):
+            self.assertIn(attendu, texte)
+
     def test_le_bouton_suit_la_langue_de_la_page(self):
         # Le libelle du bouton venait du serveur, lu une fois au chargement : basculer FR/EN
         # dans la page ne le changeait pas. Il suit maintenant l'attribut lang de <html>
