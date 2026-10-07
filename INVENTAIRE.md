@@ -274,3 +274,10 @@ textes dans toutes les langues (`libelles_par_langue`) et `reglages.js` suit l'a
 `POST /api/autostart {"actif": …}` (agit tout de suite, rend l'état réel, l'erreur ou les
 avertissements dans la langue) : le contrat que blink2video avait déjà. `reglages.js` dessine la
 case dans le panneau Réglages quand la route existe, et la cache sinon.
+
+0.4.12 (2026-10-07) : le sélecteur de langue FR / EN est commun. `langue.routes(lire, ecrire)` donne
+`GET/POST /api/langue` ; `/nico579-langue.js` dessine les deux boutons dans les emplacements
+`data-nico579-langue` de la page, pose l'attribut `lang` de <html> et annonce chaque changement
+(événement `nico579-langue`, `window.nico579Langue.surChangement`). Les textes restent à chaque
+application. Une simple détection par le navigateur n'est gardée que si l'application le demande
+(`enregistrer_detection`, pour le menu de l'icône de blink2video).

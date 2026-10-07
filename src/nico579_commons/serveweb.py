@@ -42,10 +42,12 @@ from urllib.parse import parse_qs, urlparse
 PREFIXE_API = "/api/"
 ROUTE_BANDEAU_MAJ = "/nico579-maj.js"
 ROUTE_REGLAGES = "/nico579-reglages.js"
+ROUTE_LANGUE = "/nico579-langue.js"
 # Fichiers JavaScript communs, servis depuis le paquet : route -> fichier.
 FICHIERS_COMMUNS = {
     ROUTE_BANDEAU_MAJ: "maj_banniere.js",
     ROUTE_REGLAGES: "reglages.js",
+    ROUTE_LANGUE: "langue.js",
 }
 
 
@@ -254,8 +256,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_index()
             return
         if route in FICHIERS_COMMUNS:
-            # Bandeau de mise à jour et bouton Réglages communs (maj_install.routes
-            # en fournit l'API).
+            # Bandeau de mise à jour, bouton Réglages et sélecteur de langue communs
+            # (maj_install.routes, demarrage.routes et langue.routes en fournissent l'API).
             self.send_static(Path(__file__).with_name(FICHIERS_COMMUNS[route]),
                              "text/javascript; charset=utf-8")
             return

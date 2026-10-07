@@ -20,7 +20,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from nico579_commons import serveweb  # noqa: E402
+from nico579_commons import langue, serveweb  # noqa: E402
 
 
 def port_disponible():
@@ -458,7 +458,7 @@ class BandeauMaj(unittest.TestCase):
         # Un exécutable dont le .spec oublie collect_data_files("nico579_commons").
         with mock.patch.object(serveweb.Path, "is_file", return_value=False):
             self.assertEqual(sorted(serveweb.fichiers_manquants()),
-                             ["maj_banniere.js", "reglages.js"])
+                             ["langue.js", "maj_banniere.js", "reglages.js"])
 
     def test_le_bouton_parle_aux_routes_de_maj_install(self):
         texte = Path(serveweb.__file__).with_name("reglages.js").read_text(encoding="utf-8")
@@ -483,6 +483,51 @@ class BandeauMaj(unittest.TestCase):
         texte = Path(serveweb.__file__).with_name("maj_banniere.js").read_text(encoding="utf-8")
         for attendu in ("/api/maj", "/api/maj-installer", "libelles", "redemarrage"):
             self.assertIn(attendu, texte)
+
+
+class LangueCommune(unittest.TestCase):
+    """nico579_commons.langue : le choix FR / EN, lu et enregistré par l'application."""
+
+    def routes(self, code=None, **options):
+        self.enregistres = []
+        return langue.routes(lambda: code, self.enregistres.append, **options)
+
+    def test_etat_rend_le_code_enregistre_ou_rien(self):
+        get, _ = self.routes("en")
+        self.assertEqual(get["langue"]()["code"], "en")
+        get, _ = self.routes(None)
+        self.assertIsNone(get["langue"]()["code"])
+        get, _ = self.routes("de")                          # valeur inconnue : comme rien
+        self.assertIsNone(get["langue"]()["code"])
+
+    def test_un_choix_explicite_est_enregistre(self):
+        _, post = self.routes()
+        self.assertEqual(post["langue"]({"code": "fr"}),
+                         {"ok": True, "code": "fr", "enregistre": True})
+        self.assertEqual(self.enregistres, ["fr"])
+
+    def test_une_langue_inconnue_est_refusee(self):
+        _, post = self.routes()
+        self.assertFalse(post["langue"]({"code": "de"})["ok"])
+        self.assertFalse(post["langue"]({})["ok"])
+        self.assertFalse(post["langue"](None)["ok"])
+        self.assertEqual(self.enregistres, [])
+
+    def test_une_simple_detection_n_est_gardee_que_si_l_application_le_demande(self):
+        _, post = self.routes()
+        self.assertFalse(post["langue"]({"code": "en", "detectee": True})["enregistre"])
+        self.assertEqual(self.enregistres, [])
+        _, post = self.routes(enregistrer_detection=True)
+        self.assertTrue(post["langue"]({"code": "en", "detectee": True})["enregistre"])
+        self.assertEqual(self.enregistres, ["en"])
+
+    def test_la_page_est_servie_et_decrite(self):
+        script = Path(serveweb.__file__).with_name("langue.js")
+        texte = script.read_text(encoding="utf-8")
+        for attendu in ("/api/langue", "data-nico579-langue", "nico579-langue",
+                        "window.nico579Langue", "surChangement", "setAttribute('lang'"):
+            self.assertIn(attendu, texte)
+        self.assertEqual(serveweb.FICHIERS_COMMUNS[serveweb.ROUTE_LANGUE], "langue.js")
 
 
 if __name__ == "__main__":
