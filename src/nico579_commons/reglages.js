@@ -38,8 +38,35 @@
     return { fond: fond, texte: style.color, police: style.fontFamily };
   }
 
+  // Langue que la page affiche maintenant : l'application pose l'attribut lang de <html>
+  // quand l'utilisateur bascule FR/EN. Tant qu'il n'a rien basculé, on garde la langue
+  // choisie par le serveur (l'attribut statique d'une page n'est pas toujours exact).
+  var langueChoisie = null;
+
   function textes() {
-    return (donnees && donnees.libelles) || {};
+    if (!donnees) { return {}; }
+    var par = donnees.libelles_par_langue || {};
+    return (langueChoisie && par[langueChoisie]) || donnees.libelles || {};
+  }
+
+  function actualiserLangue() {
+    var lg = (document.documentElement.getAttribute('lang') || '').slice(0, 2).toLowerCase();
+    if (!lg || lg === langueChoisie) { return; }
+    langueChoisie = lg;
+    if (bouton) {
+      bouton.textContent = textes().reglages || '⚙';
+      bouton.title = textes().reglages_titre || 'Settings';
+    }
+    if (panneau) {
+      var titre = document.getElementById('nico579-reglages-titre');
+      if (titre) { titre.textContent = textes().reglages_titre || 'Settings'; }
+      remplir();
+    }
+  }
+
+  if (window.MutationObserver) {
+    new MutationObserver(actualiserLangue)
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
   }
 
   function dire(message) {
@@ -195,8 +222,8 @@
     fetch('/api/maj', { cache: 'no-store' }).then(function (r) { return r.json(); })
       .then(function (d) {
         donnees = d;
-        bouton.textContent = (d.libelles && d.libelles.reglages) || '⚙';
-        bouton.title = (d.libelles && d.libelles.reglages_titre) || 'Settings';
+        bouton.textContent = textes().reglages || '⚙';
+        bouton.title = textes().reglages_titre || 'Settings';
       }).catch(function () {});
   }
 

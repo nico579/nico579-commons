@@ -263,3 +263,8 @@ interrogent GitHub de la même façon : au plus une fois par heure, redémarrage
 5. Brique 11, puis 7.
 6. Brique 12.
 7. Brique 13 en dernier.
+
+0.4.10 (2026-10-07) : le bouton Réglages suit la langue de la page. Son libellé venait du serveur,
+lu une fois au chargement : basculer FR/EN ne le changeait pas. `/api/maj` donne désormais les
+textes dans toutes les langues (`libelles_par_langue`) et `reglages.js` suit l'attribut `lang` de
+<html>, que les applications posent quand on bascule.

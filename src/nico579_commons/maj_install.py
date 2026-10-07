@@ -1029,7 +1029,10 @@ def routes(installateur: Installateur, langue: Callable[[], str] = lambda: "fr")
                 "verifie_a": verificateur.verifie_a,
                 "page": (info or {}).get("page") or verificateur.page_des_releases,
                 "possible": possible_, "raison": raison,
-                "etat": dict(courant, erreur=erreur), "libelles": LIBELLES_BANDEAU[lg]}
+                "etat": dict(courant, erreur=erreur), "libelles": LIBELLES_BANDEAU[lg],
+                # Toutes les langues : la page change de langue sans recharger, et le bouton
+                # Réglages (reglages.js) doit suivre sans interroger le serveur à nouveau.
+                "libelles_par_langue": LIBELLES_BANDEAU}
 
     def installer(_payload) -> dict:
         return {"ok": installateur.demarrer()}

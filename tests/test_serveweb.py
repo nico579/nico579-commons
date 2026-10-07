@@ -466,6 +466,14 @@ class BandeauMaj(unittest.TestCase):
                         "window.nico579Reglages", "libelles"):
             self.assertIn(attendu, texte)
 
+    def test_le_bouton_suit_la_langue_de_la_page(self):
+        # Le libelle du bouton venait du serveur, lu une fois au chargement : basculer FR/EN
+        # dans la page ne le changeait pas. Il suit maintenant l'attribut lang de <html>
+        # (que les applications posent quand on bascule), avec les deux langues deja recues.
+        texte = Path(serveweb.__file__).with_name("reglages.js").read_text(encoding="utf-8")
+        for attendu in ("libelles_par_langue", "MutationObserver", "attributeFilter: ['lang']"):
+            self.assertIn(attendu, texte)
+
     def test_le_script_parle_aux_routes_de_maj_install(self):
         texte = Path(serveweb.__file__).with_name("maj_banniere.js").read_text(encoding="utf-8")
         for attendu in ("/api/maj", "/api/maj-installer", "libelles", "redemarrage"):
