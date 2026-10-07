@@ -123,14 +123,26 @@ class Verificateur:
         return None
 
     def veiller(self, arret: Optional[threading.Event] = None) -> threading.Thread:
-        """Fil démon : une vérification tout de suite, puis toutes les
-        `fraicheur_s` secondes, jusqu'à `arret`."""
+        """Fil démon : une vérification quand la dernière réponse a plus de
+        `fraicheur_s` secondes (ou n'existe pas), puis toutes les `fraicheur_s`
+        secondes, jusqu'à `arret`. Une réponse encore fraîche, celle du cache disque
+        d'un démarrage récent par exemple, n'est pas redemandée : on attend ce qu'il
+        en reste. Hors ligne, la question suivante n'est reposée qu'une heure plus
+        tard."""
         arret = arret or threading.Event()
 
         def boucle():
             while True:
-                self.verifier()
-                if arret.wait(self.fraicheur_s):
+                verifie = self.verifie_a
+                age = None if verifie is None else time.time() - verifie
+                # Une réponse datée du futur (horloge revenue en arrière) est périmée :
+                # sinon la veille resterait muette jusqu'à ce que l'heure la rattrape.
+                if age is None or age < 0 or age >= self.fraicheur_s:
+                    self.verifier()
+                    reste = self.fraicheur_s
+                else:
+                    reste = self.fraicheur_s - age
+                if arret.wait(reste):
                     return
 
         fil = threading.Thread(target=boucle, name="verification-version", daemon=True)
