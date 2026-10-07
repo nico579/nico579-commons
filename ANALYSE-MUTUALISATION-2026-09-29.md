@@ -590,6 +590,15 @@ changer de modèle avec `/model` avant de commencer.
 
 ## 11. Piste à étudier plus tard : Electron pour les quatre applications
 
+**Décision de Nico, 2026-10-07 : non, Electron n'est pas retenu.** La mutualisation est faite
+(nico579-commons 0.4.9, quatre applications alignées) et l'étude complète n'est pas nécessaire :
+l'avis préliminaire suffit. Chaque application embarquerait son propre Chromium et son Node (de
+l'ordre de 150 à 200 Mo de plus, quatre fois) sans rien retirer, le moteur Python restant ; l'icône
+sous GNOME Wayland et la mise à jour automatique sont déjà résolues par le commun ; la mise à jour
+d'Electron suppose des programmes signés (candidature SignPath en attente) ; Electron ne tourne plus
+sous Windows 7, que l'édition « legacy » de blink2video vise. Le texte ci-dessous reste le cadre de
+l'étude, au cas où la question reviendrait.
+
 Demande de Nico (2026-10-02) : étudier si Electron
 (https://www.electronjs.org/fr/) peut simplifier les quatre projets. Aucune
 étude n'est faite et rien n'est décidé. À traiter après la mutualisation
