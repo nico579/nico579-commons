@@ -602,7 +602,9 @@ class EssaiReel(Base):
                                  env=env, timeout=300)
         self.assertEqual(premier.returncode, 0, premier.stdout + premier.stderr)
         venv = self.home / ".exemple" / "venv"
-        self.assertIn("PRET " + str(venv), premier.stdout.replace("\\\\", "\\"))
+        # Sous macOS, /var est un lien vers /private/var : on compare les chemins résolus.
+        prefixe = [l for l in premier.stdout.splitlines() if l.startswith("PRET ")][-1][5:]
+        self.assertEqual(Path(prefixe).resolve(), venv.resolve())
         self.assertTrue((venv / "exemple-verrou.sha256").is_file())
         # Deuxième lancement : le venv est à jour, on s'y relance sans réinstaller.
         second = subprocess.run([sys.executable, str(script)], capture_output=True, text=True,
