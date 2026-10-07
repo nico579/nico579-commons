@@ -218,6 +218,14 @@ brutal (`nettoyer_restes`, `RestaurationIncomplete`, `reservation` par verrou de
 Tests repris de blink2video. Les deux stratégies (échange de dossier par assistant
 externe, copie élément par élément) partagent `preparer`.
 
+0.4.6 (2026-10-07) : `amorcage`, l'amorçage des dépendances en mode sources : modes
+auto, force, pip et none, venv `~/.<nom>/venv` remis au verrou à empreintes quand il
+change, garde contre un environnement conda ou venv déjà actif, installation sans
+verrou (blink2video en Python 3.8), image Docker (`reutiliser_environnement`), messages
+en français et en anglais. Fusion des trois versions de lidar2map, gpxsolar et
+blink2video. Il tourne avant l'installation de ce paquet : chaque application en garde
+une copie octet pour octet (`_amorcage.py`), comparée au paquet installé par un test.
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
