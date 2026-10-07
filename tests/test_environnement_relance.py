@@ -159,6 +159,10 @@ class Relancer(unittest.TestCase):
         self.assertNotIn("start_new_session", options)
         self.assertEqual(options["cwd"], "C:\\app")
         self.assertEqual(options["stdin"], subprocess.DEVNULL)
+        # Pas de flux hérité : un exécutable sans console s'en verrait fabriquer un tube
+        # que le processus relanceur emporte en sortant (OSError Errno 22 au premier print).
+        self.assertEqual(options["stdout"], subprocess.DEVNULL)
+        self.assertEqual(options["stderr"], subprocess.DEVNULL)
         for plateforme in ("darwin", "linux"):
             appels, lancer, demarrer = self.faux()
             relance.relancer(["app"], nom="app", plateforme=plateforme, unite="",
