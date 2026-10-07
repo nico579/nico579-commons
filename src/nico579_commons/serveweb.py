@@ -41,6 +41,22 @@ from urllib.parse import parse_qs, urlparse
 
 PREFIXE_API = "/api/"
 ROUTE_BANDEAU_MAJ = "/nico579-maj.js"
+ROUTE_REGLAGES = "/nico579-reglages.js"
+# Fichiers JavaScript communs, servis depuis le paquet : route -> fichier.
+FICHIERS_COMMUNS = {
+    ROUTE_BANDEAU_MAJ: "maj_banniere.js",
+    ROUTE_REGLAGES: "reglages.js",
+}
+
+
+def fichiers_manquants() -> list:
+    """Ceux des fichiers communs qui manquent à ce paquet. Vide en sources ; dans un
+    exécutable PyInstaller, les données du paquet ne sont embarquées que si le
+    .spec les demande (collect_data_files("nico579_commons")) : sans cela, la
+    page réclame un fichier qui n'existe pas (constaté sur les exécutables
+    installés le 2026-10-07). Les auto-tests des applications l'appellent."""
+    return [nom for nom in FICHIERS_COMMUNS.values()
+            if not Path(__file__).with_name(nom).is_file()]
 
 # Route -> (fichier dans gui_dir, type de contenu). Les fichiers absents
 # répondent 404 : une application sans web_bridge.js n'a rien à retirer.
@@ -237,9 +253,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/":
             self.send_index()
             return
-        if route == ROUTE_BANDEAU_MAJ:
-            # Bandeau de mise à jour commun (maj_install.routes en fournit l'API).
-            self.send_static(Path(__file__).with_name("maj_banniere.js"),
+        if route in FICHIERS_COMMUNS:
+            # Bandeau de mise à jour et bouton Réglages communs (maj_install.routes
+            # en fournit l'API).
+            self.send_static(Path(__file__).with_name(FICHIERS_COMMUNS[route]),
                              "text/javascript; charset=utf-8")
             return
         statique = self.fichiers_statiques.get(route)

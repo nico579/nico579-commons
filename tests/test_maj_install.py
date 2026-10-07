@@ -395,13 +395,19 @@ class AssistantReel(Base):
 class FauxVerificateur:
     page_des_releases = "https://github.com/nico579/exemple/releases/latest"
 
-    def __init__(self, info):
+    version_locale = "1.0.0"
+
+    def __init__(self, info, repond=True):
         self.info = info
         self.verifications = 0
+        self.repond = repond
+        self.verifie_a = None
 
     def verifier(self):
         self.verifications += 1
-        return True
+        if self.repond:
+            self.verifie_a = 1_700_000_000.0
+        return self.repond
 
     def disponible(self):
         return self.info
@@ -695,6 +701,41 @@ class RoutesBandeau(BaseInstallateur):
         self.assertEqual(etat()["libelles"]["installer"], "Install")
         _, etat, _ = self.routes(langue="FR-ca")
         self.assertEqual(etat()["libelles"]["installer"], "Installer")
+
+    def test_l_etat_donne_la_version_locale_et_la_derniere_verification(self):
+        _, etat, _ = self.routes()
+        d = etat()
+        self.assertEqual(d["version_locale"], "1.0.0")
+        self.assertIsNone(d["verifie_a"])                  # jamais vérifié
+        for cle in ("reglages", "reglages_titre", "version", "verifier", "verification",
+                    "a_jour", "echec_verification", "derniere_verification"):
+            self.assertIn(cle, d["libelles"])
+
+    def test_verifier_maintenant_interroge_et_rend_l_etat(self):
+        installateur, etat, _ = self.routes(info={"version": "9.1.0", "page": "https://x/r", "assets": []})
+        get, post = mi.routes(installateur, lambda: "fr")
+        d = post["maj-verifier"]({})
+        self.assertTrue(d["ok"])
+        self.assertEqual(installateur.verificateur.verifications, 1)
+        self.assertEqual(d["version"], "9.1.0")
+        self.assertEqual(d["verifie_a"], 1_700_000_000.0)
+
+    def test_deux_clics_rapproches_ne_font_qu_une_question(self):
+        installateur, _, _ = self.routes()
+        get, post = mi.routes(installateur, lambda: "fr")
+        post["maj-verifier"]({})
+        post["maj-verifier"]({})
+        post["maj-verifier"]({})
+        self.assertEqual(installateur.verificateur.verifications, 1)
+
+    def test_verification_impossible_est_annoncee_sans_erreur(self):
+        self.patches()
+        installateur = self.installateur(info=None)
+        installateur.verificateur.repond = False
+        get, post = mi.routes(installateur, lambda: "fr")
+        d = post["maj-verifier"]({})
+        self.assertFalse(d["ok"])
+        self.assertIsNone(d["version"])
 
     def test_installer_demarre_et_l_etat_le_montre(self):
         installateur, etat, installer = self.routes()

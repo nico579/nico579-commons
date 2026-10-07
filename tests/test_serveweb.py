@@ -439,6 +439,33 @@ class BandeauMaj(unittest.TestCase):
         self.assertEqual(envoye["chemin"], script)
         self.assertTrue(envoye["type"].startswith("text/javascript"))
 
+    def test_le_bouton_reglages_est_servi_avec_le_bandeau(self):
+        self.assertEqual(serveweb.fichiers_manquants(), [])
+        script = Path(serveweb.__file__).with_name("reglages.js")
+        self.assertTrue(script.is_file())
+        h = Demo.__new__(Demo)
+        h.headers = {"Host": "127.0.0.1"}
+        h.client_address = ("127.0.0.1", 1)
+        h.trusted_host = ""
+        h.path = serveweb.ROUTE_REGLAGES
+        envoye = {}
+        h.send_static = lambda chemin, type_, cache=None: envoye.update(chemin=chemin, type=type_)
+        h.do_GET()
+        self.assertEqual(envoye["chemin"], script)
+        self.assertTrue(envoye["type"].startswith("text/javascript"))
+
+    def test_fichiers_manquants_nomme_ce_qui_n_est_pas_embarque(self):
+        # Un exécutable dont le .spec oublie collect_data_files("nico579_commons").
+        with mock.patch.object(serveweb.Path, "is_file", return_value=False):
+            self.assertEqual(sorted(serveweb.fichiers_manquants()),
+                             ["maj_banniere.js", "reglages.js"])
+
+    def test_le_bouton_parle_aux_routes_de_maj_install(self):
+        texte = Path(serveweb.__file__).with_name("reglages.js").read_text(encoding="utf-8")
+        for attendu in ("/api/maj", "/api/maj-verifier", "/api/maj-installer", "nico579-reglages",
+                        "window.nico579Reglages", "libelles"):
+            self.assertIn(attendu, texte)
+
     def test_le_script_parle_aux_routes_de_maj_install(self):
         texte = Path(serveweb.__file__).with_name("maj_banniere.js").read_text(encoding="utf-8")
         for attendu in ("/api/maj", "/api/maj-installer", "libelles", "redemarrage"):

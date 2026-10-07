@@ -963,6 +963,9 @@ def archive_standard(nom: str, *, racine_macos: str, systeme: Optional[str] = No
 
 # ------------------------------------------------ routes pour la page de l'application
 
+# Deux « Vérifier les mises à jour » plus rapprochés que cela ne font qu'une question.
+DELAI_ENTRE_VERIFICATIONS_S = 5.0
+
 LIBELLES_BANDEAU = {
     "fr": {
         "disponible": "Version {version} disponible.",
@@ -973,6 +976,14 @@ LIBELLES_BANDEAU = {
         "erreur": "La mise à jour a échoué :",
         "reessayer": "Réessayer",
         "fermer": "Fermer",
+        "reglages": "⚙ Réglages…",
+        "reglages_titre": "Réglages",
+        "version": "Version {version}",
+        "verifier": "Vérifier les mises à jour",
+        "verification": "Vérification…",
+        "a_jour": "Vous avez la dernière version.",
+        "echec_verification": "Vérification impossible (réseau ?).",
+        "derniere_verification": "Dernière vérification : {heure}",
     },
     "en": {
         "disponible": "Version {version} available.",
@@ -983,6 +994,14 @@ LIBELLES_BANDEAU = {
         "erreur": "The update failed:",
         "reessayer": "Retry",
         "fermer": "Close",
+        "reglages": "⚙ Settings…",
+        "reglages_titre": "Settings",
+        "version": "Version {version}",
+        "verifier": "Check for updates",
+        "verification": "Checking…",
+        "a_jour": "You have the latest version.",
+        "echec_verification": "Could not check (network?).",
+        "derniere_verification": "Last checked: {heure}",
     },
 }
 
@@ -1006,6 +1025,8 @@ def routes(installateur: Installateur, langue: Callable[[], str] = lambda: "fr")
         if erreur:
             erreur = dict(erreur, message=erreur["message"].get(lg) or erreur["message"]["fr"])
         return {"version": info["version"] if info else None,
+                "version_locale": verificateur.version_locale,
+                "verifie_a": verificateur.verifie_a,
                 "page": (info or {}).get("page") or verificateur.page_des_releases,
                 "possible": possible_, "raison": raison,
                 "etat": dict(courant, erreur=erreur), "libelles": LIBELLES_BANDEAU[lg]}
@@ -1013,7 +1034,21 @@ def routes(installateur: Installateur, langue: Callable[[], str] = lambda: "fr")
     def installer(_payload) -> dict:
         return {"ok": installateur.demarrer()}
 
-    return {"maj": etat}, {"maj-installer": installer}
+    derniere_question = [0.0]
+
+    def verifier(_payload) -> dict:
+        """« Vérifier les mises à jour » du panneau Réglages : interroge GitHub tout
+        de suite. Deux clics rapprochés n'en font qu'une question (l'API publique en
+        accorde soixante par heure)."""
+        maintenant = time.monotonic()
+        if maintenant - derniere_question[0] < DELAI_ENTRE_VERIFICATIONS_S:
+            ok = installateur.verificateur.verifie_a is not None
+        else:
+            derniere_question[0] = maintenant
+            ok = installateur.verificateur.verifier()
+        return dict(etat(), ok=ok)
+
+    return {"maj": etat}, {"maj-installer": installer, "maj-verifier": verifier}
 
 
 # ======================================================================

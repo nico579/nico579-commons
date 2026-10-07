@@ -127,7 +127,13 @@ def relancer(commande: Sequence[str], *, nom: str, plateforme=None, unite=None,
                 return "systemd"
         except (OSError, subprocess.SubprocessError):
             pass
+    # Aucun flux hérité : un exécutable sans console n'a pas de sortie standard, et
+    # Python lui en fabrique une, un tube que ce processus emporte en sortant ; le
+    # premier print() du nouveau processus y lève « OSError: [Errno 22] » (constaté
+    # sur watch2notif le 2026-10-07).
     options.setdefault("stdin", subprocess.DEVNULL)
+    options.setdefault("stdout", subprocess.DEVNULL)
+    options.setdefault("stderr", subprocess.DEVNULL)
     options.setdefault("close_fds", True)
     if plateforme == "win32":
         options.setdefault("creationflags", CREATE_NO_WINDOW)

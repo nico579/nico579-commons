@@ -231,6 +231,18 @@ clair, `ensure_ascii=False`) et vide le tampon aussitôt, comme le faisait blink
 seul : son override disparaît. Les autres applications (watch2notif, qui appelle
 `send_json`) changent d'octets mais pas de sens : la page décode les deux de la même façon.
 
+0.4.8 (2026-10-07) : le bouton « ⚙ Réglages… » commun (`reglages.js`, servi à
+`/nico579-reglages.js`) : la version et « Vérifier les mises à jour », avec l'installation
+proposée si une version est là, et une place pour les lignes propres à chaque application
+(`window.nico579Reglages.ajouter`). Même affordance que blink2video, qui l'avait déjà. Route
+`POST /api/maj-verifier` dans `maj_install.routes` (deux clics rapprochés n'en font qu'une
+question à GitHub), et `/api/maj` donne désormais `version_locale` et `verifie_a`.
+`serveweb.fichiers_manquants()` : les exécutables doivent embarquer les données du paquet
+(`collect_data_files("nico579_commons")`), ce que ni lidar2map, ni gpxsolar, ni watch2notif ne
+faisaient : leur bandeau de mise à jour réclamait un fichier absent (404). `relance.relancer`
+donne par défaut `stdout` et `stderr` à DEVNULL (un exécutable sans console relancé par
+« Redémarrer » plantait au premier print).
+
 ## Ordre proposé
 
 1. Briques 1 à 3 dans les quatre applications (menu commun complet) :
