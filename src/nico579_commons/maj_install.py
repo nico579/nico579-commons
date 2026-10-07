@@ -1072,7 +1072,10 @@ MARQUEUR_PERMUTATION = ".maj_permutation.json"
 NOM_RESERVATION = ".maj-installation"
 
 LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non finalisée subsiste : {marqueur}. '
-                                     'Sauvegardes .ancien conservées ; réparation nécessaire.',
+                                     'Sauvegardes .ancien conservées ; réparation nécessaire. '
+                                     "Si l'application démarre et fonctionne (par exemple après "
+                                     'une réinstallation à la main), supprimez ce fichier et les '
+                                     'éléments « .ancien » à côté, puis relancez la mise à jour.',
         'permutation_preparation_interrompue': 'Préparation de permutation interrompue : '
                                                '{marqueur}. Aucun remplacement autorisé avant '
                                                'vérification.',
@@ -1082,7 +1085,10 @@ LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non
                                    'tentative. Conserver {marqueur} et les sauvegardes .ancien. '
                                    '{echecs}',
         'maj_precedente_non_finalisee': 'Mise à jour précédente non finalisée : sauvegardes et '
-                                        'préparation conservées.',
+                                        'préparation conservées. Si l\'application démarre et '
+                                        'fonctionne (par exemple après une réinstallation à la '
+                                        'main), supprimez {marqueur} et les éléments « .ancien » '
+                                        'à côté, puis relancez la mise à jour.',
         'arret_version_en_place': 'Arrêt de la version en place…',
         'arret_echoue': "Mise à jour interrompue : la commande d'arrêt a échoué.",
         'instance_encore_active': 'Mise à jour interrompue : une instance est encore active.',
@@ -1091,8 +1097,10 @@ LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non
         'installation_non_reservee': 'Installation non réservée ; aucun remplacement ni nettoyage '
                                      'autorisé ({erreur}).',
         'brut': '{texte}'},
- 'en': {'permutation_non_finalisee': 'An unfinished swap remains: {marqueur}. .old backups kept; '
-                                     'repair needed.',
+ 'en': {'permutation_non_finalisee': 'An unfinished swap remains: {marqueur}. .ancien backups kept; '
+                                     'repair needed. If the application starts and works (for '
+                                     'example after reinstalling it by hand), delete this file and '
+                                     'the ".ancien" items next to it, then update again.',
         'permutation_preparation_interrompue': 'Swap preparation interrupted: {marqueur}. No '
                                                'replacement allowed before verification.',
         'permutation_non_demarree': 'Swap not started: {erreur}',
@@ -1100,7 +1108,9 @@ LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non
         'restauration_incomplete': 'Incomplete restoration; no relaunch or further attempt. Keep '
                                    '{marqueur} and the .old backups. {echecs}',
         'maj_precedente_non_finalisee': 'Previous update not finalized: backups and preparation '
-                                        'kept.',
+                                        'kept. If the application starts and works (for example '
+                                        'after reinstalling it by hand), delete {marqueur} and the '
+                                        '".ancien" items next to it, then update again.',
         'arret_version_en_place': 'Stopping the current version…',
         'arret_echoue': 'Update interrupted: the stop command failed.',
         'instance_encore_active': 'Update interrupted: an instance is still active.',
@@ -1256,7 +1266,8 @@ def nettoyer_restes(installe: Path, elements: Sequence[str], *,
     installe = Path(installe)
     with reservation(installe, nom_reservation, langue=langue):
         if (installe / marqueur).exists():
-            raise RestaurationIncomplete(texte("maj_precedente_non_finalisee", langue))
+            raise RestaurationIncomplete(
+                texte("maj_precedente_non_finalisee", langue, marqueur=installe / marqueur))
         for nom in elements:
             reste = installe / f"{nom}.ancien"
             try:

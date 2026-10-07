@@ -128,6 +128,23 @@ class Permutation(Base):
         with self.assertRaises(mi.RestaurationIncomplete):
             self.nettoyer()
 
+    def test_le_refus_dit_quoi_supprimer_et_quand(self):
+        # Issue 95 de blink2video : « What do I need to delete to allow automatic updates? »
+        # Le message ne nommait pas le fichier ; il le nomme, dans les deux langues, avec la
+        # condition (l'application démarre et fonctionne, par exemple après une réinstallation).
+        self.marqueur.write_text("{}", encoding="utf-8")
+        for langue, mot in (("fr", "supprimez"), ("en", "delete")):
+            with self.assertRaises(mi.RestaurationIncomplete) as ctx:
+                self.nettoyer(langue=langue)
+            message = str(ctx.exception)
+            self.assertIn(str(self.marqueur), message)
+            self.assertIn(mot, message)
+            self.assertIn(".ancien", message)
+            with self.assertRaises(mi.RestaurationIncomplete) as ctx:
+                self.permuter(langue=langue)
+            self.assertIn(str(self.marqueur), str(ctx.exception))
+            self.assertIn(mot, str(ctx.exception))
+
     def test_marqueur_refuse_ne_modifie_aucun_fichier(self):
         ouvrir = Path.open
 
