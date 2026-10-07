@@ -184,12 +184,17 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------- réponses
 
     def send_json(self, data, status: int = 200) -> None:
-        corps = json.dumps(data).encode("utf-8")
+        """Réponse JSON en UTF-8 lisible (« é », pas « \u00e9 ») : la page décode
+        l'un comme l'autre, mais un journal ou un test lit le premier. Le tampon est
+        vidé tout de suite : une application qui s'arrête juste après avoir répondu
+        (redémarrage) ne doit pas laisser la réponse dans le tampon."""
+        corps = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corps)))
         self.end_headers()
         self.wfile.write(corps)
+        self.wfile.flush()
 
     def send_static(self, path: Optional[Path], content_type: str,
                     cache: Optional[str] = None) -> None:
