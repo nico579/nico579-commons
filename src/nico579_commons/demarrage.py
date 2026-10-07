@@ -395,3 +395,61 @@ def apercu(entree: Entree, *, plateforme: Optional[str] = None,
 
 def commande_ligne(commande: Sequence[str]) -> str:
     return subprocess.list2cmdline(list(commande))
+
+
+# ======================================================================
+# La case « Démarrer automatiquement avec le système » du panneau Réglages
+# ======================================================================
+#
+# Même case dans les quatre applications (reglages.js la dessine quand la route existe) :
+# GET /api/autostart rend l'état, POST /api/autostart {"actif": true|false} agit tout de
+# suite et rend l'état réel. C'est le contrat que blink2video avait déjà.
+
+LIBELLES_CASE = {
+    "fr": {"demarrage": "Démarrer automatiquement avec le système"},
+    "en": {"demarrage": "Start automatically with the system"},
+}
+
+
+def routes(entree: Callable[[], Entree], langue: Callable[[], str] = lambda: "fr") -> tuple:
+    """(routes GET, routes POST) à ajouter à celles de l'application. `entree` donne
+    l'Entree de démarrage de l'application (un appel à chaque fois : la commande peut
+    dépendre de l'installation en cours), `langue` sa langue courante."""
+    def lire_langue() -> str:
+        valeur = (langue() or "fr")[:2].lower()
+        return valeur if valeur in LIBELLES_CASE else "en"
+
+    def etat() -> dict:
+        return {"actif": est_actif(entree()), "libelles": LIBELLES_CASE[lire_langue()],
+                "libelles_par_langue": LIBELLES_CASE}
+
+    def changer(payload) -> dict:
+        lg = lire_langue()
+        voulu = bool((payload or {}).get("actif"))
+        erreur = None
+        avertissements = []
+        try:
+            if voulu:
+                for code in activer(entree()):
+                    avertissements.append(message(code, lg, utilisateur=_utilisateur()))
+            else:
+                desactiver(entree())
+        except ErreurDemarrage as exc:
+            erreur = exc.message(lg)
+        except Exception as exc:                      # le système refuse : on le dit, on ne plante pas
+            erreur = str(exc)
+        reponse = {"ok": erreur is None, "actif": est_actif(entree()),
+                   "avertissements": avertissements}
+        if erreur is not None:
+            reponse["error"] = erreur
+        return reponse
+
+    return {"autostart": etat}, {"autostart": changer}
+
+
+def _utilisateur() -> str:
+    try:
+        import getpass
+        return getpass.getuser()
+    except Exception:
+        return "<utilisateur>"

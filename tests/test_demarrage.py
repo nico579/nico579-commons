@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -316,6 +317,64 @@ class Divers(Base):
             champs = {lg: {f for _, f, _, _ in string.Formatter().parse(demarrage.LIBELLES[lg][cle]) if f}
                       for lg in ("fr", "en")}
             self.assertEqual(champs["fr"], champs["en"], cle)
+
+
+class RoutesDeLaCase(unittest.TestCase):
+    """La case « Démarrer automatiquement avec le système » du panneau Réglages."""
+
+    def routes(self, langue="fr"):
+        return demarrage.routes(entree, lambda: langue)
+
+    def test_l_etat_dit_si_l_entree_est_posee_et_donne_les_textes_dans_les_deux_langues(self):
+        get, post = self.routes("en")
+        self.assertEqual(sorted(get), ["autostart"])
+        self.assertEqual(sorted(post), ["autostart"])
+        with mock.patch.object(demarrage, "est_actif", return_value=True):
+            etat = get["autostart"]()
+        self.assertTrue(etat["actif"])
+        self.assertEqual(etat["libelles"]["demarrage"], "Start automatically with the system")
+        self.assertEqual(etat["libelles_par_langue"]["fr"]["demarrage"],
+                         "Démarrer automatiquement avec le système")
+
+    def test_activer_agit_tout_de_suite_et_rend_l_etat_reel(self):
+        _, post = self.routes()
+        with mock.patch.object(demarrage, "activer", return_value=[]) as activer,                 mock.patch.object(demarrage, "est_actif", return_value=True):
+            reponse = post["autostart"]({"actif": True})
+        activer.assert_called_once()
+        self.assertEqual(reponse, {"ok": True, "actif": True, "avertissements": []})
+
+    def test_desactiver(self):
+        _, post = self.routes()
+        with mock.patch.object(demarrage, "desactiver") as desactiver,                 mock.patch.object(demarrage, "est_actif", return_value=False):
+            reponse = post["autostart"]({"actif": False})
+        desactiver.assert_called_once()
+        self.assertTrue(reponse["ok"])
+        self.assertFalse(reponse["actif"])
+
+    def test_un_refus_du_systeme_est_dit_dans_la_langue_et_l_etat_reste_vrai(self):
+        _, post = self.routes("en")
+        refus = demarrage.ErreurDemarrage("plateforme_non_prise_en_charge", plateforme="plan9")
+        with mock.patch.object(demarrage, "activer", side_effect=refus),                 mock.patch.object(demarrage, "est_actif", return_value=False):
+            reponse = post["autostart"]({"actif": True})
+        self.assertFalse(reponse["ok"])
+        self.assertFalse(reponse["actif"])
+        self.assertIn("not supported on plan9", reponse["error"])
+
+    def test_une_erreur_inattendue_ne_plante_pas_la_route(self):
+        _, post = self.routes()
+        with mock.patch.object(demarrage, "activer", side_effect=OSError("disque plein")),                 mock.patch.object(demarrage, "est_actif", return_value=False):
+            reponse = post["autostart"]({"actif": True})
+        self.assertEqual((reponse["ok"], reponse["error"]), (False, "disque plein"))
+
+    def test_les_avertissements_sont_traduits(self):
+        _, post = self.routes("fr")
+        with mock.patch.object(demarrage, "activer", return_value=["session_systemd_absente"]),                 mock.patch.object(demarrage, "est_actif", return_value=True):
+            reponse = post["autostart"]({"actif": True})
+        self.assertTrue(reponse["ok"])
+        self.assertIn("Aucune session systemd", reponse["avertissements"][0])
+
+    def test_les_libelles_de_la_case_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(demarrage.LIBELLES_CASE["fr"]), set(demarrage.LIBELLES_CASE["en"]))
 
 
 if __name__ == "__main__":

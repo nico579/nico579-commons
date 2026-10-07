@@ -20,6 +20,7 @@
   var corps = null;
   var statut = null;
   var sections = [];           // [{titre, element}] ajoutées par l'application
+  var demarrage = null;        // dernière réponse de /api/autostart (null : l'application n'en a pas)
   var bouton = null;
 
   function el(nom, attributs, enfants) {
@@ -90,7 +91,45 @@
     statut = el('p', { role: 'status', style: 'margin:10px 0 0;min-height:1.4em' });
     corps.appendChild(statut);
     afficherResultat(false);
+    if (demarrage) { corps.appendChild(ligneDemarrage()); }
     sections.forEach(ajouterSection);
+  }
+
+  // « Démarrer automatiquement avec le système » : la même case dans les quatre applications,
+  // quand elles donnent la route /api/autostart (nico579_commons.demarrage.routes).
+  function ligneDemarrage() {
+    var par = demarrage.libelles_par_langue || {};
+    var T = (langueChoisie && par[langueChoisie]) || demarrage.libelles || {};
+    var bloc = el('div', { style: 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(128,128,128,.4)' });
+    var cocher = el('input', { type: 'checkbox' });
+    cocher.checked = !!demarrage.actif;
+    var note = el('p', { role: 'status', style: 'margin:6px 0 0;min-height:1.2em;font-size:.9em' });
+    bloc.appendChild(el('label', { style: 'display:flex;align-items:center;gap:8px;cursor:pointer' },
+                        [cocher, T.demarrage || 'Start automatically with the system']));
+    bloc.appendChild(note);
+    cocher.addEventListener('change', function () {
+      cocher.disabled = true;
+      note.textContent = '';
+      fetch('/api/autostart', { method: 'POST', cache: 'no-store',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ actif: cocher.checked }) })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          demarrage.actif = !!d.actif;
+          cocher.checked = !!d.actif;           // l'état réel, pas celui qu'on espérait
+          note.textContent = d.error || (d.avertissements || []).join(' ');
+        })
+        .catch(function () { cocher.checked = !!demarrage.actif; })
+        .then(function () { cocher.disabled = false; });
+    });
+    return bloc;
+  }
+
+  function lireDemarrage() {
+    return fetch('/api/autostart', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { demarrage = (d && typeof d.actif === 'boolean') ? d : null; })
+      .catch(function () { demarrage = null; });
   }
 
   function styleBouton() {
@@ -177,8 +216,11 @@
   }
 
   function ouvrir() {
-    var demande = fetch('/api/maj', { cache: 'no-store' }).then(function (r) { return r.json(); })
-      .then(function (d) { donnees = d; }).catch(function () {});
+    var demande = Promise.all([
+      fetch('/api/maj', { cache: 'no-store' }).then(function (r) { return r.json(); })
+        .then(function (d) { donnees = d; }).catch(function () {}),
+      lireDemarrage()
+    ]);
     if (panneau) { fermer(); }
     panneau = creerPanneau();
     document.body.appendChild(panneau);
