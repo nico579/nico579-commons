@@ -711,6 +711,14 @@ class RoutesBandeau(BaseInstallateur):
                     "a_jour", "echec_verification", "derniere_verification"):
             self.assertIn(cle, d["libelles"])
 
+    def test_l_etat_donne_les_libelles_dans_toutes_les_langues(self):
+        _, etat, _ = self.routes(langue="fr")
+        d = etat()
+        self.assertEqual(sorted(d["libelles_par_langue"]), ["en", "fr"])
+        self.assertEqual(d["libelles_par_langue"]["en"]["reglages_titre"], "Settings")
+        self.assertEqual(d["libelles_par_langue"]["fr"]["reglages_titre"], "Réglages")
+        self.assertEqual(d["libelles"], d["libelles_par_langue"]["fr"])
+
     def test_verifier_maintenant_interroge_et_rend_l_etat(self):
         installateur, etat, _ = self.routes(info={"version": "9.1.0", "page": "https://x/r", "assets": []})
         get, post = mi.routes(installateur, lambda: "fr")
