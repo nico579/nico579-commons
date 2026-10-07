@@ -283,7 +283,7 @@ application. Une simple détection par le navigateur n'est gardée que si l'appl
 (`enregistrer_detection`, pour le menu de l'icône de blink2video).
 
 0.4.13 (2026-10-08) : le refus « mise à jour précédente non finalisée » dit quoi faire (issue 95 de
-blink2video : « What do I need to delete? »). Le message nomme le marqueur (chemin complet) et les
-éléments « .ancien », et la condition : l'application démarre et fonctionne, par exemple après une
-réinstallation à la main. Sans cela, quelqu'un qui avait réinstallé à la main ne pouvait plus jamais
+blink2video : « What do I need to delete? »). Le message nomme le marqueur (chemin complet) et la
+condition : l'application démarre et fonctionne, par exemple après une réinstallation à la main ; il
+suffit alors de supprimer ce seul fichier, la mise à jour suivante efface elle-même les « .ancien ». Sans cela, quelqu'un qui avait réinstallé à la main ne pouvait plus jamais
 mettre à jour automatiquement sans deviner le fichier caché à supprimer.
