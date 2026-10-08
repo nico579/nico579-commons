@@ -287,3 +287,12 @@ blink2video : « What do I need to delete? »). Le message nomme le marqueur (ch
 condition : l'application démarre et fonctionne, par exemple après une réinstallation à la main ; il
 suffit alors de supprimer ce seul fichier, la mise à jour suivante efface elle-même les « .ancien ». Sans cela, quelqu'un qui avait réinstallé à la main ne pouvait plus jamais
 mettre à jour automatiquement sans deviner le fichier caché à supprimer.
+
+0.4.14 (2026-10-08) : une permutation interrompue est reprise, plus refusée. Une installation tuée
+pendant la permutation laissait un marqueur qui bloquait toute mise à jour suivante, jusqu'à ce que
+l'utilisateur le supprime à la main (issue 95 de blink2video ; 0.4.13 ne faisait que le nommer).
+Maintenant `nettoyer_restes` ne purge rien tant que le marqueur existe (il rend vrai), et `permuter`
+reprend : les « .ancien » laissés par l'interruption, dernière copie sûre, ne sont jamais touchés ;
+l'élément en place est écarté en « .reprise ». Après un succès complet (nouvelle version vérifiée
+avant la permutation), le marqueur disparaît et la mise à jour suivante efface les deux. Si la
+reprise échoue, retour arrière, marqueur et sauvegardes restent : la suivante réessaiera.

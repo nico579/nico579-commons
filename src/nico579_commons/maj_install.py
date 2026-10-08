@@ -1084,6 +1084,8 @@ LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non
         'restauration_incomplete': 'Restauration incomplète ; aucune relance ni nouvelle '
                                    'tentative. Conserver {marqueur} et les sauvegardes .ancien. '
                                    '{echecs}',
+        'reprise_permutation': 'Mise à jour précédente interrompue : reprise, sans toucher '
+                               'aux sauvegardes.',
         'maj_precedente_non_finalisee': 'Mise à jour précédente non finalisée : sauvegardes et '
                                         'préparation conservées. Si l\'application démarre et '
                                         'fonctionne (par exemple après une réinstallation à la '
@@ -1107,6 +1109,8 @@ LIBELLES_PERMUTATION = {'fr': {'permutation_non_finalisee': 'Une permutation non
         'echec_remplacement': 'Replacement failed ({erreur}). Reverting to the previous version.',
         'restauration_incomplete': 'Incomplete restoration; no relaunch or further attempt. Keep '
                                    '{marqueur} and the .old backups. {echecs}',
+        'reprise_permutation': 'Previous update was interrupted: resuming it, backups left '
+                               'untouched.',
         'maj_precedente_non_finalisee': 'Previous update not finalized: backups and preparation '
                                         'kept. If the application starts and works (for example '
                                         'after reinstalling it by hand), delete the file {marqueur}: the '
@@ -1187,9 +1191,17 @@ def permuter(neuf: Path, installe: Path, elements: Sequence[str], *,
     Les anciens sont écartés (« <nom>.ancien ») avant d'être supprimés : si une
     copie échoue à mi-chemin, on sait revenir en arrière, ce qu'un effacement
     préalable rendrait impossible. Rend vrai si tout est en place, faux si la
-    permutation n'a pas pu démarrer (rien n'a changé : on peut réessayer), et
-    lève RestaurationIncomplete si le retour arrière lui-même échoue ou si une
-    permutation précédente n'est pas finalisée (rien ne doit alors être purgé)."""
+    permutation n'a pas pu démarrer ou a été défaite (on peut réessayer), et lève
+    RestaurationIncomplete si le retour arrière lui-même échoue.
+
+    Une permutation précédente interrompue (le marqueur est resté : processus tué,
+    coupure de courant) est REPRISE plutôt que refusée : les « .ancien » qu'elle a
+    laissés sont la dernière copie sûre de l'ancienne version, on n'y touche pas ;
+    l'élément en place, peut-être à moitié copié, est écarté à part
+    (« <nom>.reprise »). Après un succès complet, tout est la nouvelle version,
+    vérifiée avant la permutation : la mise à jour suivante efface les deux. Avant
+    cette reprise, il fallait supprimer le marqueur à la main (issue 95 de
+    blink2video)."""
     with reservation(installe, nom_reservation, langue=langue):
         return _permuter_reserve(Path(neuf), Path(installe), elements, marqueur, poser,
                                  ecrire, langue)
@@ -1197,14 +1209,16 @@ def permuter(neuf: Path, installe: Path, elements: Sequence[str], *,
 
 def _permuter_reserve(neuf, installe, elements, nom_marqueur, poser, ecrire, langue) -> bool:
     marqueur = installe / nom_marqueur
+    reprise = False
     try:
         # Création exclusive AVANT la première mutation : un arrêt brutal laisse
         # aussi le garde-fou empêchant de purger la seule sauvegarde.
         with marqueur.open("x", encoding="utf-8") as fichier:
             json.dump({"elements": list(elements)}, fichier)
-    except FileExistsError as erreur:
-        raise RestaurationIncomplete(
-            texte("permutation_non_finalisee", langue, marqueur=marqueur)) from erreur
+    except FileExistsError:
+        # Une permutation précédente a été interrompue : on la reprend (voir plus haut).
+        reprise = True
+        ecrire(texte("reprise_permutation", langue))
     except OSError as erreur:
         if marqueur.exists():
             raise RestaurationIncomplete(
@@ -1222,6 +1236,9 @@ def _permuter_reserve(neuf, installe, elements, nom_marqueur, poser, ecrire, lan
             retire = None
             if ancien.exists():
                 retire = installe / f"{nom}.ancien"
+                if reprise and retire.exists():
+                    # La sauvegarde laissée par l'interruption : intouchable.
+                    retire = installe / f"{nom}.reprise"
                 effacer_element(retire)
                 os.replace(ancien, retire)
             touches.append((retire, ancien))
@@ -1239,7 +1256,9 @@ def _permuter_reserve(neuf, installe, elements, nom_marqueur, poser, ecrire, lan
                     os.replace(retire, ancien)
             except OSError as restauration:
                 echecs.append(f"{ancien.name}: {restauration}")
-        if not echecs:
+        if not echecs and not reprise:
+            # En reprise, l'état d'avant était déjà celui d'une interruption : le
+            # marqueur reste, et avec lui la protection des « .ancien ».
             try:
                 marqueur.unlink()
             except OSError as restauration:
@@ -1253,30 +1272,32 @@ def _permuter_reserve(neuf, installe, elements, nom_marqueur, poser, ecrire, lan
 
 def nettoyer_restes(installe: Path, elements: Sequence[str], *,
              marqueur: str = MARQUEUR_PERMUTATION, nom_reservation: str = NOM_RESERVATION,
-             apres: Optional[Callable[[Path], None]] = None, langue: str = "fr") -> None:
-    """Efface les restes d'une mise à jour précédente (les « <nom>.ancien »), puis
-    appelle `apres(installe)` pour ceux que l'application a posés elle-même.
+             apres: Optional[Callable[[Path], None]] = None, langue: str = "fr") -> bool:
+    """Efface les restes d'une mise à jour précédente (les « <nom>.ancien » et
+    « <nom>.reprise »), puis appelle `apres(installe)` pour ceux que
+    l'application a posés elle-même. Rend vrai si une permutation interrompue
+    attend d'être reprise : on ne purge alors aucune sauvegarde, c'est la
+    permutation de cette mise à jour qui la reprendra (voir permuter).
 
     Ce ménage ne peut pas se faire à la fin de l'opération : le programme qui
     permute tourne depuis son dossier de préparation, et sous Windows un
     exécutable ne peut pas effacer le dossier dont il est issu. On le fait donc au
-    début de la suivante, quand plus personne n'y tient. Refuse (lève
-    RestaurationIncomplete) si une permutation précédente n'est pas finalisée :
-    les sauvegardes sont alors tout ce qui reste."""
+    début de la suivante, quand plus personne n'y tient."""
     installe = Path(installe)
     with reservation(installe, nom_reservation, langue=langue):
-        if (installe / marqueur).exists():
-            raise RestaurationIncomplete(
-                texte("maj_precedente_non_finalisee", langue, marqueur=installe / marqueur))
-        for nom in elements:
-            reste = installe / f"{nom}.ancien"
-            try:
-                shutil.rmtree(reste, ignore_errors=True) if reste.is_dir() \
-                    else reste.unlink(missing_ok=True)
-            except OSError:
-                pass
+        interrompue = (installe / marqueur).exists()
+        if not interrompue:
+            for nom in elements:
+                for suffixe in (".ancien", ".reprise"):
+                    reste = installe / f"{nom}{suffixe}"
+                    try:
+                        shutil.rmtree(reste, ignore_errors=True) if reste.is_dir() \
+                            else reste.unlink(missing_ok=True)
+                    except OSError:
+                        pass
         if apres is not None:
             apres(installe)
+        return interrompue
 
 
 def finaliser(installe: Path, neuf: Path, elements: Sequence[str], *,
