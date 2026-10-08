@@ -913,7 +913,13 @@ class Installateur:
             self.verificateur.verifier()
             info = self.verificateur.disponible()
             if not info:
-                raise _echec("asset_absent", nom="release")
+                # Déjà à jour : un bouton « Installer » resté affiché d'avant un
+                # redémarrage (autre onglet, panneau ouvert, double clic). Ce n'est pas une
+                # erreur ; avant, le bandeau affichait « Fichier de release absent ou en
+                # double : release », qui ne voulait rien dire (watch2notif, 2026-10-08).
+                self._fixer(etat="inactif", version=None, recu=0, total=0, erreur=None)
+                self.ecrire(f"[maj] déjà à jour ({self.verificateur.version_locale}), rien à installer")
+                return
             self._fixer(version=info["version"])
             disp = self.construire()
 

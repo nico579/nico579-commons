@@ -296,3 +296,9 @@ reprend : les « .ancien » laissés par l'interruption, dernière copie sûre, 
 l'élément en place est écarté en « .reprise ». Après un succès complet (nouvelle version vérifiée
 avant la permutation), le marqueur disparaît et la mise à jour suivante efface les deux. Si la
 reprise échoue, retour arrière, marqueur et sauvegardes restent : la suivante réessaiera.
+
+0.4.15 (2026-10-08) : « Installer » alors qu'on est déjà à jour n'est plus une erreur. Un bouton
+resté affiché d'avant un redémarrage (autre onglet, panneau ouvert, double clic) lançait une
+installation sans version disponible ; l'installateur finissait en erreur avec « Fichier de release
+absent ou en double : release », que le bandeau affichait (constaté sur watch2notif juste après sa
+mise à jour en 0.10.1). Maintenant il revient au repos et note au journal « déjà à jour ».
