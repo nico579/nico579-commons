@@ -91,17 +91,20 @@ class Permutation(Base):
         self.permuter(poser=self.refuser_bibliotheques, langue="fr")
         self.assertTrue(any("Échec du remplacement" in m for m in self.messages))
 
-    def test_restauration_incomplete_preserve_original_et_bloque_tous_reessais(self):
+    def test_restauration_incomplete_preserve_original_et_la_reprise_le_garde(self):
+        # Retour arrière impossible : le marqueur reste et la sauvegarde aussi. La mise à jour
+        # suivante ne purge rien et reprend la permutation sans toucher à cette sauvegarde.
         self.provoquer_retour_incomplet()
         sauvegarde = self.installe / "exemple.exe.ancien"
         self.assertEqual(sauvegarde.read_bytes(), b"original")
         self.assertTrue(self.marqueur.exists())
-        for _ in range(3):
-            with self.assertRaises(mi.RestaurationIncomplete):
-                self.permuter()
-            with self.assertRaises(mi.RestaurationIncomplete):
-                self.nettoyer()
+        self.assertTrue(self.nettoyer())                      # interrompue : rien de purgé
         self.assertEqual(sauvegarde.read_bytes(), b"original")
+        self.assertTrue(self.permuter())
+        self.assertEqual(sauvegarde.read_bytes(), b"original")  # jamais écrasée
+        self.assertEqual((self.installe / "exemple.exe").read_bytes(), b"neuf")
+        self.assertEqual((self.installe / "_internal" / "lib").read_bytes(), b"lib-neuve")
+        self.assertFalse(self.marqueur.exists())
         self.assertEqual((self.installe / "clip.mp4").read_bytes(), b"clip conserve")
 
     def test_element_neuf_partiellement_copie_est_retire_au_retour(self):
@@ -117,33 +120,54 @@ class Permutation(Base):
         self.assertEqual((self.installe / "exemple.exe").read_bytes(), b"original")
         self.assertFalse(self.marqueur.exists())
 
-    def test_arret_brutal_preserve_la_marque_et_le_nettoyage_refuse(self):
+    def test_arret_brutal_puis_reprise_par_la_mise_a_jour_suivante(self):
+        # Issue 95 de blink2video : l'installation est tuée pendant la copie de _internal.
+        # Avant, chaque mise à jour suivante refusait jusqu'à ce qu'on supprime le marqueur à
+        # la main. Maintenant elle reprend : tout devient la nouvelle version, l'ancienne
+        # reste sauvegardée jusqu'au succès, puis le ménage suivant efface les restes.
+        def interrompre_dans_les_bibliotheques(source, cible):
+            if source.name == "_internal":
+                cible.mkdir()
+                (cible / "lib").write_bytes(b"lib-a-moitie")
+                raise KeyboardInterrupt
+            mi.poser(source, cible)
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.permuter(poser=interrompre_dans_les_bibliotheques)
+        self.assertTrue(self.marqueur.exists())
+        self.assertEqual((self.installe / "exemple.exe.ancien").read_bytes(), b"original")
+        self.assertEqual((self.installe / "_internal.ancien" / "lib").read_bytes(), b"lib-originale")
+
+        self.assertTrue(self.nettoyer())                      # rien de purgé
+        self.assertTrue((self.installe / "_internal.ancien").exists())
+        self.messages.clear()
+        self.assertTrue(self.permuter())
+        self.assertTrue(any("reprise" in m.lower() or "resum" in m.lower() for m in self.messages))
+        self.assertEqual((self.installe / "exemple.exe").read_bytes(), b"neuf")
+        self.assertEqual((self.installe / "_internal" / "lib").read_bytes(), b"lib-neuve")
+        self.assertFalse(self.marqueur.exists())
+        # Les sauvegardes de la première tentative sont restées intactes jusqu'au bout.
+        self.assertEqual((self.installe / "exemple.exe.ancien").read_bytes(), b"original")
+        self.assertEqual((self.installe / "_internal.ancien" / "lib").read_bytes(), b"lib-originale")
+
+        self.assertFalse(self.nettoyer())                     # plus rien d'interrompu
+        for reste in ("exemple.exe.ancien", "_internal.ancien", "exemple.exe.reprise",
+                      "_internal.reprise"):
+            self.assertFalse((self.installe / reste).exists(), reste)
+        self.assertEqual((self.installe / "clip.mp4").read_bytes(), b"clip conserve")
+
+    def test_reprise_qui_echoue_garde_les_sauvegardes_et_le_marqueur(self):
         def interrompre(source, cible):
             raise KeyboardInterrupt
 
         with self.assertRaises(KeyboardInterrupt):
             self.permuter(poser=interrompre)
-        self.assertTrue(self.marqueur.exists())
+        # Seconde tentative : la copie des bibliothèques échoue, retour arrière.
+        self.assertFalse(self.permuter(poser=self.refuser_bibliotheques))
+        self.assertTrue(self.marqueur.exists())                # toujours interrompue
         self.assertEqual((self.installe / "exemple.exe.ancien").read_bytes(), b"original")
-        with self.assertRaises(mi.RestaurationIncomplete):
-            self.nettoyer()
-
-    def test_le_refus_dit_quoi_supprimer_et_quand(self):
-        # Issue 95 de blink2video : « What do I need to delete to allow automatic updates? »
-        # Le message ne nommait pas le fichier ; il le nomme, dans les deux langues, avec la
-        # condition (l'application démarre et fonctionne, par exemple après une réinstallation).
-        self.marqueur.write_text("{}", encoding="utf-8")
-        for langue, mot in (("fr", "supprimez"), ("en", "delete")):
-            with self.assertRaises(mi.RestaurationIncomplete) as ctx:
-                self.nettoyer(langue=langue)
-            message = str(ctx.exception)
-            self.assertIn(str(self.marqueur), message)
-            self.assertIn(mot, message)
-            self.assertIn(".ancien", message)
-            with self.assertRaises(mi.RestaurationIncomplete) as ctx:
-                self.permuter(langue=langue)
-            self.assertIn(str(self.marqueur), str(ctx.exception))
-            self.assertIn(mot, str(ctx.exception))
+        self.assertTrue(self.nettoyer())
+        self.assertEqual((self.installe / "exemple.exe.ancien").read_bytes(), b"original")
 
     def test_marqueur_refuse_ne_modifie_aucun_fichier(self):
         ouvrir = Path.open
@@ -187,12 +211,13 @@ class Nettoyage(Base):
         self.assertEqual((self.installe / "clip.mp4").read_bytes(), b"clip conserve")
         self.assertEqual((self.installe / "exemple.exe").read_bytes(), b"neuf")
 
-    def test_refuse_tant_qu_une_permutation_n_est_pas_finalisee(self):
+    def test_ne_purge_rien_tant_qu_une_permutation_est_interrompue(self):
         self.marqueur.write_text("{}", encoding="utf-8")
         (self.installe / "exemple.exe.ancien").write_bytes(b"sauvegarde")
-        with self.assertRaises(mi.RestaurationIncomplete):
-            self.nettoyer()
+        vus = []
+        self.assertTrue(self.nettoyer(apres=vus.append))
         self.assertEqual((self.installe / "exemple.exe.ancien").read_bytes(), b"sauvegarde")
+        self.assertEqual(vus, [self.installe])                # le ménage propre à l'appli, oui
 
     def test_erreur_du_corps_n_est_pas_requalifiee_en_echec_d_acquisition(self):
         erreur = PermissionError("échec du corps réservé")
@@ -305,8 +330,7 @@ class Reservation(Base):
         self.assertEqual(len(erreurs), 1)
         self.assertIsInstance(erreurs[0], mi.RestaurationIncomplete)
         self.assertTrue(self.marqueur.exists())
-        with self.assertRaises(mi.RestaurationIncomplete):
-            self.nettoyer()
+        self.assertTrue(self.nettoyer())                      # interrompue : rien de purgé
         self.assertEqual(sauvegarde.read_bytes(), b"original")
 
 
