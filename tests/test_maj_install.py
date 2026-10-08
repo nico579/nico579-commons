@@ -518,11 +518,13 @@ class InstallateurTests(BaseInstallateur):
         self.assertEqual((self.vu["etat"], self.vu["recu"], self.vu["total"]),
                          ("telechargement", 5, 10))
 
-    def test_rien_a_installer(self):
+    def test_rien_a_installer_n_est_pas_une_erreur(self):
+        # Déjà à jour : un bouton « Installer » resté affiché d'avant un redémarrage. Le
+        # bandeau affichait « Fichier de release absent ou en double : release ».
         self.patches()
         etat = self.lancer_et_attendre(self.installateur(info=None))
-        self.assertEqual(etat["etat"], "erreur")
-        self.assertEqual(etat["erreur"]["code"], "asset_absent")
+        self.assertEqual(etat["etat"], "inactif")
+        self.assertIsNone(etat["erreur"])
         self.assertEqual(self.appels, [])
         self.assertEqual(self.quitte, [])
 
@@ -577,10 +579,17 @@ class InstallateurTests(BaseInstallateur):
         self.assertEqual(etat["erreur"]["message"]["fr"], "boum")
 
     def test_on_peut_reessayer_apres_une_erreur(self):
-        self.patches()
-        installateur = self.installateur(info=None)
+        essais = []
+
+        def prepare_casse_une_fois(app, info, depot, disp, **options):
+            essais.append(info["version"])
+            if len(essais) == 1:
+                raise RuntimeError("coupure réseau")
+            return self.prep
+
+        self.patches(preparer=prepare_casse_une_fois)
+        installateur = self.installateur()
         self.assertEqual(self.lancer_et_attendre(installateur)["etat"], "erreur")
-        installateur.verificateur.info = {"version": "9.0.0", "assets": []}
         etat = self.lancer_et_attendre(installateur)
         self.assertEqual(etat["etat"], "redemarrage")
         self.assertIsNone(etat["erreur"])
