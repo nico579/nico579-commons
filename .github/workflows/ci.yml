@@ -73,6 +73,24 @@ jobs:
           python -m pip check
           python -c "import nico579_commons.maj_install, nico579_commons.serveweb, nico579_commons.langue"
 
+  navigateur:
+    name: Bandeau, Réglages et langue dans un vrai navigateur
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # Playwright pilote un vrai Chromium : les scripts de page communs y
+      # tournent comme dans les applications, horloge simulée comprise. Même
+      # version que les contrôles de page de gpx2elev.
+      - name: Playwright et Chromium
+        run: |
+          python -m pip install --quiet playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - name: Pages communes
+        run: python -m unittest tests.test_pages_navigateur -v
+
   statusnotifier:
     name: Icône StatusNotifierItem sur un vrai bus D-Bus
     runs-on: ubuntu-latest

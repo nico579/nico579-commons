@@ -149,7 +149,9 @@
         var installer = el('button', { type: 'button', style: styleBouton() }, [L.installer || 'Install']);
         installer.addEventListener('click', function () {
           fetch('/api/maj-installer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                        body: '{}' });
+                                        body: '{}' })
+            .then(function () { if (window.nico579Maj) { window.nico579Maj.suivre(); } })
+            .catch(function () {});
           fermer();   // le bandeau commun montre l'avancement
         });
         statut.appendChild(installer);
