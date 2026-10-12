@@ -14,6 +14,8 @@
   var barre = null;
   var minuteur = null;
   var attendaitRedemarrage = false;
+  var enCours = false;            // téléchargement ou redémarrage vu au dernier passage
+  var versionPage = null;         // la version qui a servi cette page
   var masquee = false;
   try { masquee = sessionStorage.getItem('nico579-maj-masquee') === '1'; } catch (e) {}
 
@@ -88,6 +90,7 @@
 
   function rendre(d) {
     var e = d.etat, L = d.libelles;
+    enCours = e.etat === 'telechargement' || e.etat === 'redemarrage';
     if (e.etat === 'redemarrage') {
       attendaitRedemarrage = true;
       afficher([texte(L.redemarrage)]);
@@ -123,8 +126,14 @@
     fetch('/api/maj', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (attendaitRedemarrage && d.etat.etat !== 'redemarrage') {
-          // Le serveur répond de nouveau : c'est la nouvelle version.
+        if (versionPage === null) { versionPage = d.version_locale; }
+        // Le serveur répond de nouveau, et c'est la nouvelle version : la page la
+        // rejoint. L'état « redémarrage » ne dure qu'un instant, entre le feu vert
+        // et l'arrêt du serveur, et le bandeau le manque le plus souvent ; une
+        // version qui a changé ne trompe pas, que l'installation soit partie du
+        // bandeau, du panneau Réglages ou du menu de l'icône.
+        if ((attendaitRedemarrage && d.etat.etat !== 'redemarrage') ||
+            (d.version_locale && d.version_locale !== versionPage)) {
           window.location.reload();
           return;
         }
@@ -132,9 +141,13 @@
       })
       .catch(function () {
         // Serveur injoignable : normal pendant le redémarrage, on réessaie vite.
-        planifier(attendaitRedemarrage ? CADENCE_ACTIVE : CADENCE_REPOS);
+        planifier(attendaitRedemarrage || enCours ? CADENCE_ACTIVE : CADENCE_REPOS);
       });
   }
+
+  // Le panneau Réglages lance aussi l'installation : il demande au bandeau de
+  // suivre l'avancement tout de suite, sans attendre sa question suivante.
+  window.nico579Maj = { suivre: function () { planifier(300); } };
 
   function installer() {
     fetch('/api/maj-installer', {
