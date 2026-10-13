@@ -25,11 +25,12 @@ import unittest
 import warnings
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
-from nico579_commons import maj_archive, maj_install as mi  # noqa: E402
+from nico579_commons import atomique, maj_archive, maj_install as mi  # noqa: E402
 
 DEPOT = "nico579/exemple"
 APP = mi.Application("exemple", donnees_preservees=("config.json", "state"),
@@ -141,12 +142,91 @@ class Disposition(Base):
             mi.disposition(APP, asset_name="a", archive_kind="zip", racine_attendue="a",
                            executable=self.racine / "exemple", systeme="Darwin", fige=True)
 
+    def test_macos_accepte_aussi_un_dossier_simple(self):
+        # L'archive macOS de blink2video contient un dossier « onedir », pas un .app.
+        dossier, exe = self.installation(systeme="Darwin")
+        disp = mi.disposition(APP, asset_name="exemple-macos-arm64.zip", archive_kind="zip",
+                              racine_attendue="exemple", executable=exe, systeme="Darwin",
+                              machine="arm64", fige=True)
+        self.assertEqual(disp.install_root, dossier.resolve())
+        self.assertEqual(disp.data_relative, Path("."))
+        self.assertEqual(disp.executable_relative, Path("exemple"))
+        (dossier / "inconnu.txt").write_text("x")      # même contrôle du contenu que sous Linux
+        with self.assertRaises(maj_archive.ErreurMiseAJour) as ctx:
+            mi.disposition(APP, asset_name="a", archive_kind="zip", racine_attendue="exemple",
+                           executable=exe, systeme="Darwin", fige=True)
+        self.assertEqual(ctx.exception.code, "unsafe_install")
+
+    def test_possible_refuse_un_dossier_parent_protege(self):
+        dossier, exe = self.installation()
+        with mock.patch.object(mi, "parent_inscriptible", return_value=False):
+            self.assertEqual(mi.possible(lambda: self.disposition(dossier, exe)),
+                             (False, "parent_protege"))
+
+    def test_droit_d_ecrire_essaye_pour_de_vrai_et_garde_un_moment(self):
+        self.assertTrue(mi.parent_inscriptible(self.racine, forcer=True))
+        absent = self.racine / "absent"
+        self.assertFalse(mi.parent_inscriptible(absent, forcer=True))
+        absent.mkdir()
+        self.assertFalse(mi.parent_inscriptible(absent))           # réponse gardée
+        plus_tard = time.monotonic() + mi.DUREE_SONDAGE_DROITS_S + 1
+        self.assertTrue(mi.parent_inscriptible(absent, maintenant=plus_tard))
+        self.assertEqual([p.name for p in self.racine.glob(".maj-droits-*")], [])
+
     def test_possible(self):
         dossier, exe = self.installation()
         self.assertEqual(mi.possible(lambda: self.disposition(dossier, exe)), (True, ""))
         self.assertEqual(mi.possible(lambda: mi.disposition(
             APP, asset_name="a", archive_kind="zip", racine_attendue="a", fige=False)),
             (False, "source_mode"))
+
+
+class RestesDeTransactions(Base):
+    """Le ménage des transactions anciennes, à côté de l'installation."""
+
+    def vieillir(self, chemin, heures=2):
+        vieux = time.time() - heures * 3600
+        os.utime(chemin, (vieux, vieux))
+
+    def test_efface_les_restes_anciens_et_garde_le_reste(self):
+        dossier, exe = self.installation()
+        disp = self.disposition(dossier, exe)
+        anciens = [".exemple.update-a", ".exemple.backup-b", ".exemple.failed-c"]
+        for nom in anciens:
+            (self.racine / nom).mkdir()
+            (self.racine / nom / "f").write_text("x")
+            self.vieillir(self.racine / nom)
+        recent = self.racine / ".exemple.update-recent"
+        recent.mkdir()
+        etranger = self.racine / ".autre.backup-x"
+        etranger.mkdir()
+        self.vieillir(etranger)
+        self.assertEqual(sorted(mi.nettoyer_transactions_anciennes(disp)), sorted(anciens))
+        self.assertTrue(recent.exists())           # trop récent : peut-être en cours
+        self.assertTrue(etranger.exists())         # une autre application
+        self.assertTrue(dossier.exists())
+
+    def test_jamais_si_l_installation_a_disparu(self):
+        # Coupure entre les deux déplacements : la sauvegarde est la seule copie.
+        dossier, exe = self.installation()
+        disp = self.disposition(dossier, exe)
+        sauvegarde = self.racine / ".exemple.backup-b"
+        sauvegarde.mkdir()
+        self.vieillir(sauvegarde)
+        shutil.rmtree(dossier)
+        self.assertEqual(mi.nettoyer_transactions_anciennes(disp), [])
+        self.assertTrue(sauvegarde.exists())
+
+    def test_rien_pendant_une_mise_a_jour_en_cours(self):
+        dossier, exe = self.installation()
+        disp = self.disposition(dossier, exe)
+        reste = self.racine / ".exemple.update-a"
+        reste.mkdir()
+        self.vieillir(reste)
+        with atomique.verrou_inter_processus(mi.chemin_verrou(disp), delai_s=0):
+            self.assertEqual(mi.nettoyer_transactions_anciennes(disp), [])
+        self.assertTrue(reste.exists())
+        self.assertEqual(mi.nettoyer_transactions_anciennes(disp), [".exemple.update-a"])
 
 
 def zip_bundle(version: str, *, avec_donnee=False, sans_internal=False) -> bytes:
@@ -304,7 +384,7 @@ prep = mi.Preparation(version="9.9.9", token="t0k3n", disposition=disp,
 app = mi.Application("exemple", donnees_preservees=("config.json", "state"),
                      verbes_relance=(("--ouvrir",), ("watch", "--loop", "60")),
                      fenetre="Minimized")
-mi.lancer(app, prep)
+mi.lancer(app, prep, pids=d.get("pids"))
 mi.valider(prep)
 '''
 
@@ -329,7 +409,7 @@ def faux_programme(dossier: Path, version: str, *, meurt_aussitot: bool) -> str:
 
 
 class AssistantReel(Base):
-    def lancer_scenario(self, *, nouvelle_meurt: bool):
+    def lancer_scenario(self, *, nouvelle_meurt: bool, pids=None):
         install = self.racine / "exemple"
         install.mkdir()
         exe = faux_programme(install, "ancienne", meurt_aussitot=False)
@@ -344,7 +424,7 @@ class AssistantReel(Base):
         donnees = {"system": "Windows" if WINDOWS else "Linux", "install": str(install),
                    "exe": exe, "staging": str(staging), "payload": str(payload),
                    "backup": str(self.racine / ".exemple.backup-t0k3n"),
-                   "failed": str(self.racine / ".exemple.failed-t0k3n")}
+                   "failed": str(self.racine / ".exemple.failed-t0k3n"), "pids": pids}
         parent = subprocess.run([sys.executable, "-c", SCRIPT_PARENT, str(SRC), json.dumps(donnees)],
                                 capture_output=True, text=True, timeout=90)
         self.assertEqual(parent.returncode, 0, parent.stdout + parent.stderr)
@@ -392,6 +472,25 @@ class AssistantReel(Base):
                       journal.read_text(encoding="utf-8", errors="replace"))
 
 
+class AssistantAttendTousLesProcessus(AssistantReel):
+    def test_l_echange_attend_la_fin_de_chaque_processus(self):
+        # blink2video tourne en plusieurs processus : l'assistant doit attendre la fin
+        # de chacun, pas seulement de celui qui a lancé la mise à jour.
+        autre = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(12)"])
+        self.addCleanup(autre.kill)
+        debut = time.monotonic()
+        install, staging = self.lancer_scenario(nouvelle_meurt=False, pids=[autre.pid])
+        # Le parent a fini, l'autre processus vit encore : rien n'est échangé.
+        time.sleep(max(0.0, 6 - (time.monotonic() - debut)))
+        self.assertIsNone(autre.poll(), "le processus témoin devait encore tourner")
+        self.assertFalse((install / "demarre-nouvelle---ouvrir.txt").exists(),
+                         "l'assistant a échangé sans attendre l'autre processus")
+        self.assertTrue((staging / "extracted" / "exemple").exists())
+        autre.wait(30)
+        self.assertTrue(self.attendre(lambda: (install / "demarre-nouvelle---ouvrir.txt").exists()),
+                        "la nouvelle version n'a pas été relancée après la fin de l'autre processus")
+
+
 class FauxVerificateur:
     page_des_releases = "https://github.com/nico579/exemple/releases/latest"
 
@@ -431,13 +530,25 @@ class BaseInstallateur(Base):
         self.messages = []
         self.quitte = []
 
-    def installateur(self, info="defaut", construire=None):
+    def installateur(self, info="defaut", construire=None, **options):
         if info == "defaut":
             info = {"version": "9.0.0", "assets": []}
-        return mi.Installateur(
+        installateur = mi.Installateur(
             APP, DEPOT, FauxVerificateur(info),
             construire or (lambda: self.disposition(self.dossier, self.exe)),
-            quitter=lambda: self.quitte.append(True), ecrire=self.messages.append)
+            quitter=lambda: self.quitte.append(True), ecrire=self.messages.append, **options)
+        # Le verrou tenu après le feu vert l'est jusqu'à la fin du processus : ici, on le
+        # rend à la fin du test, sinon Windows refuserait d'effacer le dossier temporaire.
+        self.addCleanup(lambda: installateur._verrou_maj and installateur._verrou_maj.close())
+        return installateur
+
+    def verrou_libre(self):
+        try:
+            with atomique.verrou_inter_processus(
+                    mi.chemin_verrou(self.disposition(self.dossier, self.exe)), delai_s=0):
+                return True
+        except TimeoutError:
+            return False
 
     def patches(self, **remplacements):
         defaut = {
@@ -600,6 +711,77 @@ class InstallateurTests(BaseInstallateur):
         self.assertEqual(self.installateur(construire=lambda: mi.disposition(
             APP, asset_name="a", archive_kind="zip", racine_attendue="a", fige=False)).possible(),
             (False, "source_mode"))
+
+
+class InstallateurRobuste(BaseInstallateur):
+    """Verrou entre processus, droits du dossier parent, processus multiples, ménage."""
+
+    def test_une_seconde_mise_a_jour_simultanee_est_refusee(self):
+        self.patches()
+        with atomique.verrou_inter_processus(
+                mi.chemin_verrou(self.disposition(self.dossier, self.exe)), delai_s=0):
+            etat = self.lancer_et_attendre(self.installateur())
+        self.assertEqual(etat["erreur"]["code"], "installation_en_cours")
+        self.assertEqual(self.appels, [])
+        self.assertEqual(self.quitte, [])
+
+    def test_le_verrou_reste_tenu_apres_le_feu_vert_et_rendu_apres_un_echec(self):
+        self.patches()
+        self.assertEqual(self.lancer_et_attendre(self.installateur())["etat"], "redemarrage")
+        self.assertFalse(self.verrou_libre())      # jusqu'à la fin du processus
+        self.dossier, self.exe = self.installation(nom="autre")
+
+        def casse(*a, **k):
+            raise maj_archive.ErreurMiseAJour("prepare_failed", detail="boum")
+
+        self.patches(preparer=casse)
+        self.assertEqual(self.lancer_et_attendre(self.installateur())["etat"], "erreur")
+        self.assertTrue(self.verrou_libre())
+
+    def test_dossier_parent_protege_refuse_avant_tout_telechargement(self):
+        self.patches()
+        with mock.patch.object(mi, "parent_inscriptible", return_value=False):
+            etat = self.lancer_et_attendre(self.installateur())
+        self.assertEqual(etat["erreur"]["code"], "parent_protege")
+        self.assertIn("protégé", etat["erreur"]["message"]["fr"])
+        self.assertEqual(self.appels, [])
+
+    def test_les_processus_a_attendre_sont_passes_a_l_assistant(self):
+        vus = {}
+        self.patches(lancer=lambda *a, **k: vus.update(k))
+        self.lancer_et_attendre(self.installateur(pids_a_attendre=lambda: [111, 222]))
+        self.assertEqual(vus["pids"], [111, 222])
+
+    def test_la_mise_a_jour_efface_les_restes_anciens(self):
+        reste = self.racine / ".exemple.failed-ancien"
+        reste.mkdir()
+        vieux = time.time() - 7200
+        os.utime(reste, (vieux, vieux))
+        self.patches()
+        self.lancer_et_attendre(self.installateur())
+        self.assertFalse(reste.exists())
+        self.assertTrue(self.staging.exists())     # la préparation en cours, récente
+        self.assertTrue(any("restes" in m for m in self.messages))
+
+    def test_nettoyer_restes_au_demarrage_ne_leve_jamais(self):
+        def casse():
+            raise maj_archive.ErreurMiseAJour("source_mode")
+        self.assertEqual(self.installateur(construire=casse).nettoyer_restes(), [])
+
+
+class PidsDeLAssistant(Base):
+    def test_pid_invalide_refuse(self):
+        dossier, exe = self.installation()
+        staging = self.racine / ".exemple.update-x"
+        (staging / "p").mkdir(parents=True)
+        prep = mi.Preparation(version="9", token="t", disposition=self.disposition(dossier, exe),
+                              staging_root=staging, payload_root=staging / "p",
+                              backup_root=self.racine / ".exemple.backup-t",
+                              failed_root=self.racine / ".exemple.failed-t")
+        for pids in (["abc"], [0], [-5]):
+            with self.assertRaises(maj_archive.ErreurMiseAJour, msg=str(pids)) as ctx:
+                mi.lancer(APP, prep, pids=pids)
+            self.assertEqual(ctx.exception.code, "helper_failed")
 
 
 class VerbesDeRelance(Base):

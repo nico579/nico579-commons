@@ -115,7 +115,10 @@ LIBELLES = {'fr': {'empreinte_url_etrangere': "URL d'empreinte étrangère à la
         'invalid_payload': 'Version téléchargée invalide : {detail}',
         'prepare_failed': 'Préparation de la mise à jour impossible : {detail}',
         'helper_failed': "L'assistant de mise à jour a échoué : {detail}",
-        'version_absente': 'Version absente de la release.'},
+        'version_absente': 'Version absente de la release.',
+        'installation_en_cours': 'Une autre mise à jour de cette installation est déjà en cours.',
+        'parent_protege': "Dossier d'installation protégé en écriture ({detail}) : mettez à jour à "
+                          'la main.'},
  'en': {'empreinte_url_etrangere': 'Checksum URL foreign to the official release.',
         'empreinte_redirection': 'The checksum redirect leaves GitHub or HTTPS.',
         'empreinte_taille_http_invalide': 'Invalid checksum HTTP size.',
@@ -169,7 +172,9 @@ LIBELLES = {'fr': {'empreinte_url_etrangere': "URL d'empreinte étrangère à la
         'invalid_payload': 'Invalid downloaded version: {detail}',
         'prepare_failed': 'Update preparation failed: {detail}',
         'helper_failed': 'The update helper failed: {detail}',
-        'version_absente': 'Version missing from the release.'}}
+        'version_absente': 'Version missing from the release.',
+        'installation_en_cours': 'Another update of this installation is already in progress.',
+        'parent_protege': 'Installation folder is write-protected ({detail}): update it by hand.'}}
 
 CATEGORIES = {
     "asset_absent": "invalid_asset",
@@ -194,6 +199,8 @@ CATEGORIES = {
     "invalid_payload": "invalid_payload",
     "prepare_failed": "prepare_failed",
     "helper_failed": "helper_failed",
+    "installation_en_cours": "busy",
+    "parent_protege": "protected_install",
 }
 
 
