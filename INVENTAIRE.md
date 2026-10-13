@@ -302,3 +302,20 @@ resté affiché d'avant un redémarrage (autre onglet, panneau ouvert, double cl
 installation sans version disponible ; l'installateur finissait en erreur avec « Fichier de release
 absent ou en double : release », que le bandeau affichait (constaté sur watch2notif juste après sa
 mise à jour en 0.10.1). Maintenant il revient au repos et note au journal « déjà à jour ».
+
+0.5.0 (2026-10-13) : l'installateur commun reprend le meilleur de celui de blink2video
+(plan PLAN-INSTALLATEUR-COMMUN-2026-10-08.md, phase 1), au profit des quatre applications.
+- Plusieurs processus : `Installateur(pids_a_attendre=...)` et `lancer(pids=...)` ; l'assistant
+  (PowerShell et sh) attend la fin de chacun avant d'échanger les dossiers, plus seulement celle
+  du processus qui a lancé la mise à jour.
+- Verrou entre processus (`chemin_verrou`, `.<nom>.maj.lock` à côté de l'installation) : une seule
+  mise à jour à la fois, quel que soit le processus qui la demande ; tenu jusqu'à la fin du
+  processus après le feu vert. Refus `installation_en_cours`.
+- Droits du dossier parent vérifiés avant de télécharger (`parent_inscriptible`, vrai essai d'écriture,
+  réponse gardée 10 minutes) ; `possible()` rend `parent_protege` avec un message clair.
+- Ménage des transactions anciennes (`nettoyer_transactions_anciennes`, `Installateur.nettoyer_restes`) :
+  préparations, sauvegardes et versions écartées de plus d'une heure, jamais si l'installation a
+  disparu, jamais pendant une mise à jour en cours.
+- macOS : un bundle « onedir » (dossier avec _internal) est accepté comme sous Linux, pas seulement
+  un `.app`.
+Version mineure : les applications doivent relever leur borne à `<0.6`.

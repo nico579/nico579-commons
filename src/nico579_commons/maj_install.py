@@ -147,9 +147,18 @@ def disposition(app: Application, *, asset_name: str, archive_kind: str,
     nom = nom_executable or app.nom
 
     if systeme == "Darwin":
-        racine = _racine_app_macos(executable)
-        data_relative = Path("Contents") / "MacOS"
-        executable_relative = data_relative / nom
+        try:
+            racine = _racine_app_macos(executable)
+            data_relative = Path("Contents") / "MacOS"
+            executable_relative = data_relative / nom
+        except ErreurMiseAJour:
+            # Un bundle « onedir » sous macOS, comme sous Linux : un dossier avec
+            # l'exécutable et _internal, pas un .app (l'archive de blink2video).
+            if not (executable.parent / "_internal").is_dir():
+                raise
+            racine = executable.parent
+            data_relative = Path(".")
+            executable_relative = Path(nom)
     else:
         racine = executable.parent
         data_relative = Path(".")
@@ -164,7 +173,7 @@ def disposition(app: Application, *, asset_name: str, archive_kind: str,
     if racine == racine_systeme or (accueil is not None and racine == accueil):
         raise _echec("unsafe_install", detail=str(racine))
 
-    if systeme != "Darwin":
+    if data_relative == Path("."):
         autorises = {executable_relative.name, "_internal", *app.donnees_preservees,
                      *app.noms_toleres}
         try:
@@ -184,14 +193,43 @@ def disposition(app: Application, *, asset_name: str, archive_kind: str,
                        executable_relative=executable_relative)
 
 
+# L'échange du dossier entier se fait dans le dossier parent de l'installation :
+# sans droit d'y écrire (Program Files, /opt...), la mise à jour automatique ne peut
+# pas aboutir. On le vérifie avant de télécharger, et on garde la réponse un moment,
+# parce que possible() est interrogé à chaque rafraîchissement du bandeau.
+DUREE_SONDAGE_DROITS_S = 600
+_DROITS: dict = {}
+
+
+def parent_inscriptible(dossier: Path, *, forcer: bool = False,
+                        maintenant: Optional[float] = None) -> bool:
+    """Vrai si l'on peut créer un fichier dans `dossier`. Un vrai essai (fichier
+    temporaire aussitôt effacé) : os.access ne dit rien des ACL de Windows."""
+    maintenant = time.monotonic() if maintenant is None else maintenant
+    cle = str(dossier)
+    connu = _DROITS.get(cle)
+    if connu is not None and not forcer and maintenant - connu[1] < DUREE_SONDAGE_DROITS_S:
+        return connu[0]
+    try:
+        with tempfile.NamedTemporaryFile(dir=dossier, prefix=".maj-droits-"):
+            pass
+        reponse = True
+    except OSError:
+        reponse = False
+    _DROITS[cle] = (reponse, maintenant)
+    return reponse
+
+
 def possible(construire: Callable[[], Disposition]) -> tuple:
     """(vrai, "") si cette installation peut se remplacer toute seule, sinon
     (faux, code du refus). `construire` : la fonction de l'application qui
     rend sa Disposition."""
     try:
-        construire()
+        disp = construire()
     except ErreurMiseAJour as erreur:
         return False, erreur.code
+    if not parent_inscriptible(disp.install_root.parent):
+        return False, "parent_protege"
     return True, ""
 
 
@@ -206,7 +244,7 @@ def _valider_bundle(app: Application, bundle: Path, disp: Disposition) -> Path:
         if (donnees / nom).exists() or (donnees / nom).is_symlink():
             raise _echec("invalid_payload",
                          detail=f"donnée modifiable présente dans le bundle : {nom}")
-    if disp.system in ("Windows", "Linux") and not (bundle / "_internal").is_dir():
+    if disp.data_relative == Path(".") and not (bundle / "_internal").is_dir():
         raise _echec("invalid_payload", detail="dossier _internal absent")
     if disp.system != "Windows" and not os.access(executable, os.X_OK):
         raise _echec("invalid_payload", detail="exécutable non exécutable")
@@ -275,6 +313,62 @@ def preparer(app: Application, info: dict, depot: str, disp: Disposition, *,
         raise _echec("prepare_failed", detail=str(erreur)) from erreur
 
 
+def chemin_verrou(disp: Disposition) -> Path:
+    """Le verrou d'une installation (atomique ajoute « .lock ») : à côté d'elle, dans
+    le dossier où se fait l'échange. Une seule mise à jour à la fois, quel que soit le
+    processus qui la lance (la page, le menu de l'icône, une seconde instance)."""
+    return disp.install_root.parent / f".{disp.install_root.name}.maj"
+
+
+AGE_RESTES_S = 3600
+
+
+def nettoyer_transactions_anciennes(disp: Disposition, *, age_min_s: float = AGE_RESTES_S,
+                                    maintenant: Optional[float] = None,
+                                    deja_verrouille: bool = False) -> list:
+    """Efface les restes d'une transaction ancienne à côté de l'installation : dossiers
+    de préparation (.<nom>.update-*), sauvegardes (.<nom>.backup-*) et versions écartées
+    (.<nom>.failed-*) qu'un assistant tué ou une coupure ont laissés. Rend leurs noms.
+
+    Trois gardes : l'installation doit exister (si elle a disparu, la sauvegarde est la
+    seule copie, on n'y touche jamais), le reste doit avoir plus de `age_min_s`, et le
+    verrou de l'installation doit être libre (aucune mise à jour en cours)."""
+    racine = disp.install_root
+    if not racine.is_dir():
+        return []
+    parent = racine.parent
+    prefixes = tuple(f".{racine.name}.{sorte}-" for sorte in ("update", "backup", "failed"))
+    maintenant = time.time() if maintenant is None else maintenant
+
+    def effacer() -> list:
+        effaces = []
+        try:
+            candidats = [p for p in parent.iterdir() if p.name.startswith(prefixes)]
+        except OSError:
+            return effaces
+        for chemin in candidats:
+            try:
+                if chemin.is_symlink() or maintenant - chemin.stat().st_mtime < age_min_s:
+                    continue
+                if chemin.is_dir():
+                    shutil.rmtree(chemin, ignore_errors=True)
+                else:
+                    chemin.unlink(missing_ok=True)
+            except OSError:
+                continue
+            if not chemin.exists():
+                effaces.append(chemin.name)
+        return effaces
+
+    if deja_verrouille:
+        return effacer()
+    try:
+        with atomique.verrou_inter_processus(chemin_verrou(disp), delai_s=0):
+            return effacer()
+    except (TimeoutError, OSError):
+        return []
+
+
 def nettoyer(prep: Preparation) -> None:
     staging = prep.staging_root.resolve()
     parent = prep.disposition.install_root.parent.resolve()
@@ -299,7 +393,8 @@ _ASSISTANT_WINDOWS = r'''param(
     [string]$LogFile,
     [string]$Preserved,
     [string]$RelaunchFile,
-    [string]$WindowStyle
+    [string]$WindowStyle,
+    [string]$WaitPids
 )
 $ErrorActionPreference = "Stop"
 function Write-UpdateLog([string]$Message) {
@@ -378,8 +473,13 @@ New-Item -ItemType File -Force -Path ($GoFile + ".ack") | Out-Null
 Write-UpdateLog "go received, ack written, waiting for parent to exit"
 Start-Sleep -Milliseconds 500
 try {
+    # Tous les processus de l'application, pas seulement celui qui a lancé la mise à
+    # jour : un seul encore vivant qui tient un fichier de _internal fait échouer le
+    # déplacement du dossier.
+    $waitIds = @($WaitPids -split ',' | Where-Object { $_ } | ForEach-Object { [int]$_ })
+    if ($waitIds.Count -eq 0) { $waitIds = @($ParentPid) }
     $parentDeadline = (Get-Date).AddMinutes(5)
-    while (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
+    while (@($waitIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }).Count -gt 0) {
         if ((Get-Date) -gt $parentDeadline) { Write-UpdateLog "parent did not exit"; exit 10 }
         Start-Sleep -Milliseconds 250
     }
@@ -445,7 +545,21 @@ service_unit=${15}
 launchd_label=${16}
 preserved=${17}
 relaunch_file=${18}
+wait_pids=${19}
 
+# Tous les processus de l'application, pas seulement celui qui a lancé la mise à jour.
+any_alive() {
+    old_ifs=$IFS
+    IFS=','
+    for watched_pid in ${wait_pids:-$parent_pid}; do
+        IFS=$old_ifs
+        if [ -n "$watched_pid" ] && kill -0 "$watched_pid" 2>/dev/null; then
+            return 0
+        fi
+    done
+    IFS=$old_ifs
+    return 1
+}
 write_log() {
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$log_file" 2>/dev/null || true
 }
@@ -574,7 +688,7 @@ write_log "go received, ack written, waiting for parent to exit"
 sleep 1
 
 waited=0
-while kill -0 "$parent_pid" 2>/dev/null; do
+while any_alive; do
     sleep 1
     waited=$((waited + 1))
     if [ "$waited" -ge 300 ]; then
@@ -697,13 +811,23 @@ def _ecrire_relance(dossier: Path, processus: Sequence[Sequence[str]]) -> Path:
 
 
 def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None] = print,
-           verbes: Optional[Sequence[Sequence[str]]] = None) -> None:
+           verbes: Optional[Sequence[Sequence[str]]] = None,
+           pids: Optional[Sequence[int]] = None) -> None:
     """Démarre l'assistant, vérifie qu'il est prêt, puis rend la main à
     l'appelant, qui doit ensuite appeler valider() et se fermer.
 
     `verbes` : les processus à relancer, un par entrée, chacune la liste de ses
-    arguments (voir processus_a_relancer)."""
+    arguments (voir processus_a_relancer). `pids` : les processus de l'application
+    dont l'assistant attend la fin avant d'échanger les dossiers ; celui-ci en fait
+    toujours partie."""
     _chemins_valides(prep)
+    try:
+        attendus = list(dict.fromkeys([os.getpid(), *(int(p) for p in (pids or ()))]))
+    except (TypeError, ValueError) as erreur:
+        raise _echec("helper_failed", detail=f"PID invalide : {erreur}") from erreur
+    if any(p <= 0 for p in attendus):
+        raise _echec("helper_failed", detail="PID invalide")
+    liste_pids = ",".join(str(p) for p in attendus)
     if any("|" in nom for nom in app.donnees_preservees):
         # « | » sépare les noms de données passés à l'assistant.
         raise _echec("helper_failed", detail="nom de donnée avec « | »")
@@ -744,7 +868,8 @@ def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None]
                         "-DataRelative", commun[6], "-ExecutableRelative", commun[7],
                         "-ReadyFile", str(pret), "-GoFile", str(feu_vert),
                         "-LogFile", str(journal), "-Preserved", preserves,
-                        "-RelaunchFile", relance, "-WindowStyle", app.fenetre]
+                        "-RelaunchFile", relance, "-WindowStyle", app.fenetre,
+                        "-WaitPids", liste_pids]
             # CREATE_NO_WINDOW seul : une console est bien créée, juste invisible,
             # contrairement à DETACHED_PROCESS (aucune console du tout) qui rendait
             # ce lancement de PowerShell erratique (parfois 15 s à démarrer, parfois
@@ -758,7 +883,8 @@ def lancer(app: Application, prep: Preparation, *, ecrire: Callable[[str], None]
             assistant = _ecrire_assistant(app, _ASSISTANT_POSIX, ".sh")
             commande = ["/bin/sh", str(assistant), *commun, disp.system, str(pret),
                         str(feu_vert), str(journal), fichier_service, str(plist or ""),
-                        app.unite_systemd, app.label_launchd, preserves, relance]
+                        app.unite_systemd, app.label_launchd, preserves, relance,
+                        liste_pids]
             if (disp.system == "Linux" and os.environ.get("INVOCATION_ID")
                     and shutil.which("systemd-run")):
                 # Sous un service systemd, l'assistant doit sortir du cgroup du
@@ -853,9 +979,15 @@ class Installateur:
                  construire: Callable[[], Disposition], *, quitter: Callable[[], None],
                  ouvrir: Callable = urllib.request.urlopen, contexte=None,
                  ecrire: Callable[[str], None] = print,
-                 verbes_relance: Optional[Callable[[], Sequence[Sequence[str]]]] = None):
+                 verbes_relance: Optional[Callable[[], Sequence[Sequence[str]]]] = None,
+                 pids_a_attendre: Optional[Callable[[], Sequence[int]]] = None):
         self.app = app
         self.verbes_relance = verbes_relance
+        # Les autres processus de l'application (blink2video en a plusieurs) : notés au
+        # moment de la mise à jour ; `quitter()` doit les arrêter, l'assistant attend
+        # leur fin avant d'échanger les dossiers.
+        self.pids_a_attendre = pids_a_attendre
+        self._verrou_maj = None
         self.depot = depot
         self.verificateur = verificateur
         self.construire = construire
@@ -869,8 +1001,20 @@ class Installateur:
 
     def possible(self) -> tuple:
         """(vrai, "") si cette installation peut se remplacer toute seule, sinon
-        (faux, code du refus : source_mode, unsafe_install...)."""
+        (faux, code du refus : source_mode, unsafe_install, parent_protege...)."""
         return possible(self.construire)
+
+    def nettoyer_restes(self) -> list:
+        """Efface les restes de transactions anciennes à côté de l'installation (voir
+        nettoyer_transactions_anciennes). Une application peut l'appeler au démarrage ;
+        la mise à jour suivante le fait de toute façon. Ne lève jamais."""
+        try:
+            effaces = nettoyer_transactions_anciennes(self.construire())
+        except Exception:
+            return []
+        if effaces:
+            self.ecrire("[maj] restes d'une mise à jour ancienne effacés : " + ", ".join(effaces))
+        return effaces
 
     def etat(self) -> dict:
         with self._verrou:
@@ -909,6 +1053,7 @@ class Installateur:
 
     def _travailler(self) -> None:
         prep = None
+        verrou = contextlib.ExitStack()
         try:
             self.verificateur.verifier()
             info = self.verificateur.disponible()
@@ -922,6 +1067,17 @@ class Installateur:
                 return
             self._fixer(version=info["version"])
             disp = self.construire()
+            parent = disp.install_root.parent
+            if not parent_inscriptible(parent, forcer=True):
+                raise _echec("parent_protege", detail=str(parent))
+            try:
+                verrou.enter_context(atomique.verrou_inter_processus(chemin_verrou(disp),
+                                                                      delai_s=0))
+            except (TimeoutError, OSError) as erreur:
+                raise _echec("installation_en_cours") from erreur
+            effaces = nettoyer_transactions_anciennes(disp, deja_verrouille=True)
+            if effaces:
+                self.ecrire("[maj] restes d'une mise à jour ancienne effacés : " + ", ".join(effaces))
 
             def progression(recu: int, total: int) -> None:
                 self._fixer(recu=recu, total=total)
@@ -930,15 +1086,20 @@ class Installateur:
                             contexte=self.contexte, progression=progression)
             # Ce qui tourne est noté à l'instant de la mise à jour, pas avant.
             verbes = self.verbes_relance() if self.verbes_relance is not None else None
-            lancer(self.app, prep, ecrire=self.ecrire, verbes=verbes)
+            pids = self.pids_a_attendre() if self.pids_a_attendre is not None else None
+            lancer(self.app, prep, ecrire=self.ecrire, verbes=verbes, pids=pids)
             valider(prep, ecrire=self.ecrire)
         except Exception as erreur:
             if prep is not None:
                 # Un assistant déjà lancé renonce et nettoie ; sinon on nettoie ici.
                 annuler(prep)
                 nettoyer(prep)
+            verrou.close()
             self._echec(erreur)
             return
+        # Le verrou reste tenu jusqu'à la fin du processus (l'OS le relâche) : aucune
+        # autre mise à jour ne peut démarrer pendant que l'assistant attend et échange.
+        self._verrou_maj = verrou
         self._fixer(etat="redemarrage")
         self.ecrire(f"[maj] version {prep.version} installée, arrêt pour laisser la main à l'assistant")
         self.quitter()
