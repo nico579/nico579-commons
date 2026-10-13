@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 import warnings
 import zipfile
 from pathlib import Path
@@ -378,7 +379,7 @@ d = json.loads(sys.argv[2])
 disp = mi.Disposition(system=d["system"], machine="x86_64", asset_name="a", archive_kind="zip",
                       expected_root="exemple", install_root=Path(d["install"]),
                       data_relative=Path("."), executable_relative=Path(d["exe"]))
-prep = mi.Preparation(version="9.9.9", token="t0k3n", disposition=disp,
+prep = mi.Preparation(version="9.9.9", token=d["token"], disposition=disp,
                       staging_root=Path(d["staging"]), payload_root=Path(d["payload"]),
                       backup_root=Path(d["backup"]), failed_root=Path(d["failed"]))
 app = mi.Application("exemple", donnees_preservees=("config.json", "state"),
@@ -424,7 +425,11 @@ class AssistantReel(Base):
         donnees = {"system": "Windows" if WINDOWS else "Linux", "install": str(install),
                    "exe": exe, "staging": str(staging), "payload": str(payload),
                    "backup": str(self.racine / ".exemple.backup-t0k3n"),
-                   "failed": str(self.racine / ".exemple.failed-t0k3n"), "pids": pids}
+                   "failed": str(self.racine / ".exemple.failed-t0k3n"), "pids": pids,
+                   # Un jeton par scénario : sous systemd (runner Linux), l'assistant tourne
+                   # dans une unité nommée d'après lui, et deux essais rapprochés au même
+                   # nom faisaient refuser le second par systemd-run.
+                   "token": uuid.uuid4().hex}
         parent = subprocess.run([sys.executable, "-c", SCRIPT_PARENT, str(SRC), json.dumps(donnees)],
                                 capture_output=True, text=True, timeout=90)
         self.assertEqual(parent.returncode, 0, parent.stdout + parent.stderr)
@@ -471,8 +476,6 @@ class AssistantReel(Base):
         self.assertIn("restart failed" if WINDOWS else "new version did not stay running",
                       journal.read_text(encoding="utf-8", errors="replace"))
 
-
-class AssistantAttendTousLesProcessus(AssistantReel):
     def test_l_echange_attend_la_fin_de_chaque_processus(self):
         # blink2video tourne en plusieurs processus : l'assistant doit attendre la fin
         # de chacun, pas seulement de celui qui a lancé la mise à jour.
