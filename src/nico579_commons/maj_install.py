@@ -401,8 +401,21 @@ function Write-UpdateLog([string]$Message) {
     try { Add-Content -LiteralPath $LogFile -Value ((Get-Date -Format o) + " " + $Message) -Encoding UTF8 } catch {}
 }
 function Quote-Argument([string]$Argument) {
-    if ($Argument -match '[\s"]') { return '"' + ($Argument -replace '"', '\"') + '"' }
-    return $Argument
+    # Regles de CommandLineToArgvW, celles de subprocess.list2cmdline : un
+    # argument vide s'ecrit "" (il disparaissait, 2026-10-17 : blink2video
+    # perdait la valeur vide de --trusted-host, puis sa releve), et les barres
+    # obliques inverses qui precedent un guillemet, ou la fin d'un argument
+    # entre guillemets, se doublent.
+    if ($Argument -ne '' -and $Argument -notmatch '[\s"]') { return $Argument }
+    $sortie = ''
+    $barres = 0
+    foreach ($c in $Argument.ToCharArray()) {
+        if ($c -eq '\') { $barres++; continue }
+        if ($c -eq '"') { $sortie += ('\' * (2 * $barres + 1)) + '"' }
+        else { $sortie += ('\' * $barres) + $c }
+        $barres = 0
+    }
+    return '"' + $sortie + ('\' * (2 * $barres)) + '"'
 }
 function Start-App([string]$Root) {
     # Un processus par ligne du fichier de relance (arguments séparés par une
@@ -417,7 +430,10 @@ function Start-App([string]$Root) {
     $first = $null
     foreach ($line in $lines) {
         $params = @{ FilePath = $exe; WorkingDirectory = (Split-Path -Parent $exe); WindowStyle = $WindowStyle; PassThru = $true }
-        $list = @($line -split "`t" | Where-Object { $_ } | ForEach-Object { Quote-Argument $_ })
+        # Un champ vide est un argument vide, pas une absence : seule une ligne
+        # vide veut dire aucun argument.
+        $list = @()
+        if ($line -ne '') { $list = @($line -split "`t" | ForEach-Object { Quote-Argument $_ }) }
         if ($list.Count -gt 0) { $params.ArgumentList = $list }
         $process = Start-Process @params
         if ($null -eq $first) { $first = $process }
@@ -620,10 +636,20 @@ start_version() {
     if [ -n "$relaunch_file" ] && [ -s "$relaunch_file" ]; then
         tab=$(printf '\t')
         while IFS= read -r line || [ -n "$line" ]; do
-            old_ifs=$IFS
-            IFS=$tab
-            set -- $line
-            IFS=$old_ifs
+            # Decoupe a la main : pour le shell la tabulation est un blanc, et
+            # « IFS=$tab; set -- $line » fusionnait deux tabulations de suite,
+            # perdant l'argument vide qu'elles encadraient (2026-10-17), sans
+            # parler des jokers developpes. Une ligne vide : aucun argument.
+            set --
+            if [ -n "$line" ]; then
+                rest=$line
+                while :; do
+                    case $rest in
+                        *"$tab"*) set -- "$@" "${rest%%"$tab"*}"; rest=${rest#*"$tab"} ;;
+                        *) set -- "$@" "$rest"; break ;;
+                    esac
+                done
+            fi
             (cd "$working_dir" && exec "$exe" "$@" </dev/null >/dev/null 2>&1) &
             [ -n "$first_pid" ] || first_pid=$!
         done < "$relaunch_file"

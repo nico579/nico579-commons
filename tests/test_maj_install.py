@@ -494,6 +494,86 @@ class AssistantReel(Base):
                         "la nouvelle version n'a pas été relancée après la fin de l'autre processus")
 
 
+SCRIPT_PARENT_VERBES = r'''
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from nico579_commons import maj_install as mi
+d = json.loads(sys.argv[2])
+disp = mi.Disposition(system=d["system"], machine="x86_64", asset_name="a", archive_kind="zip",
+                      expected_root="exemple", install_root=Path(d["install"]),
+                      data_relative=Path("."), executable_relative=Path(d["exe"]))
+prep = mi.Preparation(version="9.9.9", token=d["token"], disposition=disp,
+                      staging_root=Path(d["staging"]), payload_root=Path(d["payload"]),
+                      backup_root=Path(d["backup"]), failed_root=Path(d["failed"]))
+mi.lancer(mi.Application("exemple"), prep, verbes=d["verbes"], ecrire=lambda *_: None)
+mi.valider(prep)
+'''
+
+# Note la liste exacte de ses arguments, un fichier par processus, puis vit assez
+# longtemps pour que l'assistant le juge bien démarré (il vérifie après 5 s).
+NOTE_ARGUMENTS = r'''
+import json, os, sys, time
+from pathlib import Path
+Path(__file__).with_name("argv-%d.json" % os.getpid()).write_text(
+    json.dumps(sys.argv[1:]), encoding="utf-8")
+time.sleep(12)
+'''
+
+
+def programme_qui_note(dossier: Path) -> str:
+    if WINDOWS:
+        (dossier / "note.py").write_text(NOTE_ARGUMENTS, encoding="utf-8")
+        (dossier / "app.cmd").write_text(f'@"{sys.executable}" "%~dp0note.py" %*\r\n',
+                                         encoding="utf-8")
+        return "app.cmd"
+    exe = dossier / "app"
+    exe.write_text(f"#!{sys.executable}\n{NOTE_ARGUMENTS}", encoding="utf-8")
+    exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    return "app"
+
+
+class ArgumentsDeRelance(Base):
+    """Chaque processus relancé retrouve ses arguments à l'identique.
+
+    Le 2026-10-17, les deux assistants perdaient un argument vide : relancé par
+    0.5.0, blink2video voyait « --trusted-host "" watch » devenir « --trusted-host
+    watch », et perdait sa relève. Le faux programme d'AssistantReel ne note que
+    ses arguments recollés, où un vide ne se voit pas : celui-ci note la liste."""
+
+    LIGNES = [
+        ["serve", "--trusted-host", "", "watch", "--loop", "10"],
+        ["", "a b", 'gui"llemet', "C:\\dossier avec espace\\", "fin\\", "é", "*", ""],
+    ]
+
+    def test_chaque_argument_revient_a_l_identique(self):
+        install = self.racine / "exemple"
+        install.mkdir()
+        exe = programme_qui_note(install)
+        staging = self.racine / ".exemple.update-abc"
+        payload = staging / "extracted" / "exemple"
+        payload.mkdir(parents=True)
+        programme_qui_note(payload)
+        donnees = {"system": "Windows" if WINDOWS else "Linux", "install": str(install),
+                   "exe": exe, "verbes": self.LIGNES, "staging": str(staging),
+                   "payload": str(payload), "backup": str(self.racine / ".exemple.backup-t0k3n"),
+                   "failed": str(self.racine / ".exemple.failed-t0k3n"),
+                   "token": uuid.uuid4().hex}
+        parent = subprocess.run(
+            [sys.executable, "-c", SCRIPT_PARENT_VERBES, str(SRC), json.dumps(donnees)],
+            capture_output=True, text=True, timeout=90)
+        self.assertEqual(parent.returncode, 0, parent.stdout + parent.stderr)
+        fin = time.monotonic() + 90
+        while len(list(install.glob("argv-*.json"))) < len(self.LIGNES) and time.monotonic() < fin:
+            time.sleep(0.5)
+        recus = sorted(json.loads(note.read_text(encoding="utf-8"))
+                       for note in install.glob("argv-*.json"))
+        self.assertEqual(recus, sorted(self.LIGNES))
+        # Laisser l'assistant conclure (il range son dossier) avant le ménage.
+        while staging.exists() and time.monotonic() < fin:
+            time.sleep(0.5)
+
+
 class FauxVerificateur:
     page_des_releases = "https://github.com/nico579/exemple/releases/latest"
 
