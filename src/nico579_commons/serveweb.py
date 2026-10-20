@@ -32,6 +32,7 @@ import ipaddress
 import json
 import os
 import socket
+import sys
 import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -361,6 +362,16 @@ class Server(ThreadingHTTPServer):
     # Sous Windows, SO_REUSEADDR laisserait deux processus écouter le même
     # port : c'est ce qui permet de détecter une instance déjà lancée.
     allow_reuse_address = os.name != "nt"
+
+    def handle_error(self, request, client_address):
+        """Un client qui ferme sa connexion avant la réponse (requête que la
+        page abandonne, onglet fermé, rechargement) n'est pas une panne : sa
+        trace n'a rien à faire dans la console. Constaté dans hike2gpx le
+        2026-10-19 : WinError 10053 en rafale, sa page coupant les requêtes des
+        vues quittées. Toute autre erreur garde la trace habituelle."""
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 class Server6(Server):

@@ -7,6 +7,7 @@ repris de test_serve_web.py de gpxsolar et de lidar2map.
 """
 
 import http.client
+import io
 import json
 import os
 import socket
@@ -483,6 +484,29 @@ class BandeauMaj(unittest.TestCase):
         texte = Path(serveweb.__file__).with_name("maj_banniere.js").read_text(encoding="utf-8")
         for attendu in ("/api/maj", "/api/maj-installer", "libelles", "redemarrage"):
             self.assertIn(attendu, texte)
+
+
+class DeconnexionDuClient(unittest.TestCase):
+    """Une page qui ferme sa connexion avant la réponse n'est pas une panne :
+    rien dans la console (hike2gpx, 2026-10-19 : WinError 10053 en rafale, sa
+    page coupant les requêtes des vues quittées). Une vraie erreur, si."""
+
+    def trace(self, erreur):
+        serveur = serveweb.Server.__new__(serveweb.Server)
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as sortie:
+            try:
+                raise erreur
+            except Exception:
+                serveur.handle_error(None, ("127.0.0.1", 4242))
+        return sortie.getvalue()
+
+    def test_client_parti_sans_trace(self):
+        for erreur in (ConnectionAbortedError(10053, "connexion abandonnée"),
+                       ConnectionResetError(10054, "connexion réinitialisée"), BrokenPipeError(32, "tube rompu")):
+            self.assertEqual(self.trace(erreur), "", type(erreur).__name__)
+
+    def test_vraie_erreur_tracee(self):
+        self.assertIn("ValueError: vraie panne", self.trace(ValueError("vraie panne")))
 
 
 class LangueCommune(unittest.TestCase):
