@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nico579-commons"
-version = "0.5.2"
+version = "0.6.0"
 description = "Briques communes à blink2video, lidar2map, watch2notif et gpxsolar"
 readme = "README.md"
 # Expression SPDX (PEP 639), comme gpx2elev. L'ancienne table {text = ...} et le
@@ -13,8 +13,8 @@ readme = "README.md"
 # cette forme après le 2027-02-18. Le fichier LICENSE est inclus d'office.
 license = "GPL-3.0-or-later"
 requires-python = ">=3.8"
-# La bibliothèque seule n'exige rien : relance, raccourci, maj et environnement
-# n'emploient que la bibliothèque standard. Seule l'icône (nico579_commons.tray)
+# La bibliothèque seule n'exige rien : relance, raccourci, maj, environnement et
+# enfants n'emploient que la bibliothèque standard. Seule l'icône (nico579_commons.tray)
 # a besoin de pystray et de Pillow, d'où l'extra « tray » ; une application qui
 # n'en veut pas, ou qui les déclare déjà elle-même, ne les tire pas de force.
 dependencies = []

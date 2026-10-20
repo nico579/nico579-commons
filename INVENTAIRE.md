@@ -23,6 +23,7 @@ dépôts (relevé par thèmes, puis comparaison des fonctions de chaque copie).
 | 11 | Page : pont window.api, parcours de dossiers, fenêtre d'instance | lidar2map = gpxsolar (web_bridge.js, browse-dir) | lidar2map | à reprendre (fichiers statiques du paquet) |
 | 12 | Outillage de publication | deploy.py : blink2video (375), lidar2map (394), gpxsolar (410) ; exe_smoke : lidar2map, gpxsolar ; specs : VERSIONINFO, crochet certifi ; release.yml : corps de release et SHA-256 | à définir | workflows réutilisables (workflow_call) et scripts partagés |
 | 13 | Installation des mises à jour | blink2video maj.py (1381) ; watch2notif self_update.py (1079) | à définir | le plus gros doublon, et le plus délicat (vérification des archives, systemd, launchd) : en dernier |
+| 14 | Enfants qui meurent avec l'application | aucune : chaque application arrête ses enfants à l'arrêt propre (blink2video runtime.demarrer et ses ffmpeg, gpxsolar et son calcul, hike2gpx et BRouter), rien ne les arrête si elle meurt autrement (trois BRouter orphelins de hike2gpx le 2026-10-20) | nouvelle (noms de runtime de blink2video) | module `enfants` (0.6.0) : job Windows, ligne de vie et groupe de processus sous Linux et macOS, éprouvé en CI sur les quatre systèmes ; hike2gpx à brancher, les autres au besoin |
 
 Traduction FR/EN : chaque application a ses dictionnaires, côté page comme
 côté Python. Les modules partagés portent leurs propres libellés dans les

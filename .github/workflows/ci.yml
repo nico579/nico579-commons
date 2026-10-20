@@ -2,8 +2,10 @@ name: CI
 
 # Les tests ne demandent aucune zone de notification : un faux pystray
 # enregistre ce que le module lui demande. Python 3.8 en plus, pour
-# l'édition Windows 7 de blink2video. Le job systemd éprouve la relance
-# sous un vrai service utilisateur, ce qu'aucun poste ne doit faire.
+# l'édition Windows 7 de blink2video, et macOS Intel à côté de macOS arm64 :
+# les quatre systèmes des applications, où enfants tue pour de vrai un
+# parent pour voir mourir son enfant. Le job systemd éprouve la relance sous
+# un vrai service utilisateur, ce qu'aucun poste ne doit faire.
 
 on:
   push:
@@ -31,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
         python: ["3.12"]
         include:
           - os: windows-latest
