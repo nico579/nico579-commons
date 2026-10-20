@@ -47,6 +47,13 @@ behave the same and a fix lands everywhere at once.
   comes from (Host, client address, Origin, Sec-Fetch-Site). An app subclasses
   `Handler` for its own variable and routes with query parameters. Also finds
   a free port and tells whether an instance of the app already answers.
+- `nico579_commons.enfants`: child processes that die with the app, however
+  the app dies (closed console, killed process, crash). `demarrer()` is a
+  `subprocess.Popen` and `lancer()` a `subprocess.run`. On Windows the child
+  starts suspended, joins a job object that the kernel kills when the app's
+  handle closes, then runs; on Linux and macOS it gets its own process group
+  and a lifeline: a tiny `sh` reads a pipe that only the app can write to,
+  and kills the group when the pipe breaks.
 
 The inventory of what is shared, and where the work stands, lives in
 [INVENTAIRE.md](INVENTAIRE.md) (in French). `python outils/inventaire_communs.py`
@@ -57,7 +64,7 @@ the analysis it produced.
 ## Install
 
 ```sh
-pip install nico579-commons          # relance, raccourci, maj, environnement
+pip install nico579-commons          # relance, raccourci, maj, environnement, enfants
 pip install "nico579-commons[tray]"  # plus pystray and Pillow, for the icon
 ```
 
