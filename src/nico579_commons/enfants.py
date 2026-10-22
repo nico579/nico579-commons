@@ -48,12 +48,15 @@ import threading
 # jusqu'au bout attendrait aussi le guetteur), lit le tube, puis tue son
 # groupe (kill 0). Il lit par le descripteur reçu et non par son entrée
 # standard : celle d'une commande lancée en arrière-plan est /dev/null
-# (POSIX). Le shell principal ferme sa copie du tube et se remplace par la
-# commande, qui garde ainsi le PID que connaît Popen.
+# (POSIX). Le shell principal se remplace par la commande, qui garde ainsi le
+# PID que connaît Popen. Il ne ferme pas sa copie du tube : dash, le sh
+# d'Ubuntu et de Debian, ne lit qu'un chiffre devant une redirection, et
+# « exec 13<&- » y lançait la commande « 13 ». La commande hérite donc d'un
+# bout de lecture, sans effet sur le lien : la fin du tube ne dépend que du
+# bout d'écriture, que l'application garde seule.
 _GUETTEUR = """\
 fd=$1; shift
 ( cd /; exec </dev/null >/dev/null 2>&1; read -r x <&"$fd"; kill -s KILL 0 ) &
-eval "exec $fd<&-"
 exec "$@"
 """
 

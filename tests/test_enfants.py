@@ -189,6 +189,27 @@ class CommePopenEtRun(unittest.TestCase):
         else:
             self.assertEqual(int(sortie), enfant.pid)
 
+    def test_tube_au_dela_du_descripteur_9(self):
+        """Dans une vraie application (serveur, icône, journaux), le tube du
+        guetteur reçoit un descripteur à deux chiffres. Le sh d'Ubuntu (dash)
+        ne lit qu'un chiffre devant une redirection : « exec 13<&- » y lançait
+        la commande « 13 », et BRouter ne démarrait plus dans hike2gpx 0.2.1
+        (VM Ubuntu, 2026-10-22). On occupe tout jusqu'à 12 pour le reproduire."""
+        occupes = []
+        try:
+            while True:
+                fd = os.open(os.devnull, os.O_RDONLY)
+                occupes.append(fd)
+                if fd >= 12:
+                    break
+            with enfants.demarrer([sys.executable, "-c", "print('vivant')"],
+                                  stdout=subprocess.PIPE, text=True) as enfant:
+                sortie, _ = enfant.communicate(timeout=30)
+        finally:
+            for fd in occupes:
+                os.close(fd)
+        self.assertEqual((enfant.returncode, sortie.strip()), (0, "vivant"))
+
     def test_lancer_comme_subprocess_run(self):
         commande = [sys.executable, "-c",
                     "import sys; print(sys.stdin.read().upper()); sys.exit(3)"]
