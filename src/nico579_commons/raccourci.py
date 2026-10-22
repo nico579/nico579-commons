@@ -247,3 +247,36 @@ def _linux(nom, commande, dossier, icone, terminal, simulation, langue, dossier_
         pass
     ecrire(_texte(langue, "cree", cible=cible))
     return 0
+
+
+def au_premier_lancement(marqueur: Path, creer_raccourci: Callable[[], object], *,
+                         fige: Optional[bool] = None) -> bool:
+    """Pose le raccourci du Bureau au tout premier lancement, jamais ensuite.
+
+    Repris de blink2video (« start » et son .blink_raccourci_cree). Le
+    `marqueur`, un fichier vide dans le dossier de données de l'application,
+    est écrit avant la création : un raccourci que l'utilisateur a supprimé
+    ne revient pas, et un échec n'est pas retenté à chaque lancement.
+    `creer_raccourci` est la fonction que l'application a déjà pour son menu
+    (elle seule connaît sa commande et son icône).
+
+    Seul le bundle publié le fait (`fige`, par défaut sys.frozen) : depuis les
+    sources, un essai sous un dossier de données temporaire trouverait un
+    marqueur absent et poserait un raccourci sur le vrai Bureau.
+
+    Best-effort : rien ici ne fait échouer le démarrage. Vrai si la création
+    a été tentée."""
+    if fige is None:
+        fige = bool(getattr(sys, "frozen", False))
+    if not fige or marqueur.exists():
+        return False
+    try:
+        marqueur.parent.mkdir(parents=True, exist_ok=True)
+        marqueur.touch()
+    except OSError:
+        return False
+    try:
+        creer_raccourci()
+    except Exception:
+        pass
+    return True

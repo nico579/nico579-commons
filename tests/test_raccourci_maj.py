@@ -109,6 +109,48 @@ class Raccourci(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class PremierLancement(unittest.TestCase):
+    def setUp(self):
+        dossier = tempfile.TemporaryDirectory()
+        self.addCleanup(dossier.cleanup)
+        self.marqueur = Path(dossier.name) / "donnees" / ".raccourci_cree"
+        self.appels = []
+
+    def creer(self):
+        self.appels.append(1)
+        return 0
+
+    def test_une_seule_fois(self):
+        self.assertTrue(raccourci.au_premier_lancement(self.marqueur, self.creer, fige=True))
+        self.assertTrue(self.marqueur.exists())
+        # Raccourci supprimé par l'utilisateur ensuite : il ne revient pas.
+        self.assertFalse(raccourci.au_premier_lancement(self.marqueur, self.creer, fige=True))
+        self.assertEqual(len(self.appels), 1)
+
+    def test_rien_depuis_les_sources(self):
+        self.assertFalse(raccourci.au_premier_lancement(self.marqueur, self.creer, fige=False))
+        self.assertFalse(self.marqueur.exists())
+        self.assertEqual(self.appels, [])
+
+    def test_par_defaut_suit_sys_frozen(self):
+        self.assertFalse(hasattr(sys, "frozen"))
+        self.assertFalse(raccourci.au_premier_lancement(self.marqueur, self.creer))
+        self.assertEqual(self.appels, [])
+
+    def test_un_echec_ne_casse_pas_le_demarrage(self):
+        def echoue():
+            raise RuntimeError("pas de Bureau")
+        self.assertTrue(raccourci.au_premier_lancement(self.marqueur, echoue, fige=True))
+        # Pas retenté au lancement suivant.
+        self.assertFalse(raccourci.au_premier_lancement(self.marqueur, self.creer, fige=True))
+        self.assertEqual(self.appels, [])
+
+    def test_marqueur_impossible_a_ecrire(self):
+        self.marqueur.parent.parent.joinpath("donnees").write_text("un fichier, pas un dossier")
+        self.assertFalse(raccourci.au_premier_lancement(self.marqueur, self.creer, fige=True))
+        self.assertEqual(self.appels, [])
+
+
 class Maj(unittest.TestCase):
     def test_numeros(self):
         self.assertGreater(maj.numeros("v1.6.10"), maj.numeros("1.6.9"))
