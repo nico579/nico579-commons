@@ -22,7 +22,9 @@ behave the same and a fix lands everywhere at once.
   macOS; Restart, Stop and Update run off the icon's message loop, and the
   icon waits for them before returning.
 - `nico579_commons.raccourci`: a desktop shortcut in one call, as a .lnk on
-  Windows, a small .app on macOS and a trusted .desktop file on Linux.
+  Windows, a small .app on macOS and a trusted .desktop file on Linux;
+  `au_premier_lancement` lays it once, at the first launch of the published
+  bundle, and never again if the user removes it.
 - `nico579_commons.maj`: a light check for a newer GitHub release, asked at
   most once an hour by a background thread, so the tray menu and the page
   read the answer without waiting for the network.
