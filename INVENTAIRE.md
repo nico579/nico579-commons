@@ -24,6 +24,7 @@ dépôts (relevé par thèmes, puis comparaison des fonctions de chaque copie).
 | 12 | Outillage de publication | deploy.py : blink2video (375), lidar2map (394), gpxsolar (410) ; exe_smoke : lidar2map, gpxsolar ; specs : VERSIONINFO, crochet certifi ; release.yml : corps de release et SHA-256 | à définir | workflows réutilisables (workflow_call) et scripts partagés |
 | 13 | Installation des mises à jour | blink2video maj.py (1381) ; watch2notif self_update.py (1079) | à définir | le plus gros doublon, et le plus délicat (vérification des archives, systemd, launchd) : en dernier |
 | 14 | Enfants qui meurent avec l'application | aucune : chaque application arrête ses enfants à l'arrêt propre (blink2video runtime.demarrer et ses ffmpeg, gpxsolar et son calcul, hike2gpx et BRouter), rien ne les arrête si elle meurt autrement (trois BRouter orphelins de hike2gpx le 2026-10-20) | nouvelle (noms de runtime de blink2video) | module `enfants` (0.6.0) : job Windows, ligne de vie et groupe de processus sous Linux et macOS, éprouvé en CI sur les quatre systèmes ; hike2gpx à brancher, les autres au besoin |
+| 15 | Téléchargement de tuiles raster (WMTS, XYZ) vers MBTiles | hike2gpx fonds.py (le plus rapide mesuré : file continue, connexions gardées, enregistrements espacés) ; lidar2map _mbtiles_wmts.py (482) et _mbtiles_wmts_helpers.py (418) : redirections, validation par signature d'image, arrêt après N erreurs consécutives | hike2gpx, complété de lidar2map | module `tuiles` (0.7.0) ; hike2gpx branché ; lidar2map à brancher (ses coutures injectées, son cache disque par couche et son refus de finaliser un fond troué restent chez lui) |
 
 Traduction FR/EN : chaque application a ses dictionnaires, côté page comme
 côté Python. Les modules partagés portent leurs propres libellés dans les
@@ -320,3 +321,5 @@ mise à jour en 0.10.1). Maintenant il revient au repos et note au journal « d�
 - macOS : un bundle « onedir » (dossier avec _internal) est accepté comme sous Linux, pas seulement
   un `.app`.
 Version mineure : les applications doivent relever leur borne à `<0.6`.
+
+0.7.0 (2026-11-16) : module `tuiles` (brique 15), tiré de hike2gpx (fonds.py) et complété de lidar2map : redirections suivies, corps refusé s'il n'a pas de signature d'image, arrêt après `ERREURS_CONSECUTIVES` échecs de suite seulement (une tuile en échec est sautée, et le fond non finalisé pour la reprise). Version mineure : les applications relèvent leur borne si elles veulent le module.

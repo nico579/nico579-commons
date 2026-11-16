@@ -5,8 +5,9 @@ nouvelle version ; relance : Redémarrer ; environnement : LD_LIBRARY_PATH
 rendu aux programmes du système ; atomique : écriture atomique, JSON tolérant,
 verrou entre processus ; dossiers : état et sorties, reprise d'un ancien
 état ; serveweb : serveur web local et contrôle de la provenance des
-requêtes ; enfants : processus enfants qui meurent avec l'application).
+requêtes ; enfants : processus enfants qui meurent avec l'application ;
+tuiles : tuiles raster WMTS ou XYZ téléchargées dans un MBTiles).
 L'inventaire et le suivi du chantier : INVENTAIRE.md.
 """
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
