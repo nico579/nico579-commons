@@ -9,6 +9,7 @@ import http.server
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 from pathlib import Path
@@ -91,6 +92,15 @@ class TelechargerTuile(unittest.TestCase):
             self.assertTrue(tuiles.est_image(contenu), contenu)
         for contenu in (b"", b"abc", b"<html>...", b"{\"error\": 1}"):
             self.assertFalse(tuiles.est_image(contenu), contenu)
+
+
+class DebitModere(unittest.TestCase):
+    def test_au_plus_n_par_seconde(self):
+        limiteur = tuiles.Debit(50.0)
+        debut = time.monotonic()
+        for _ in range(11):
+            limiteur.attendre()
+        self.assertGreaterEqual(time.monotonic() - debut, 0.15)    # 11 requêtes à 50/s : 0,2 s
 
 
 class Serveur(http.server.ThreadingHTTPServer):

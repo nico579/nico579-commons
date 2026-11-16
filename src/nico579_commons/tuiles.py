@@ -163,7 +163,7 @@ class Connexions:
 
 
 def telecharger_tuile(url: str, ouvrir, debit: Debit, continuer, *, entetes: dict | None = None,
-                      absent: tuple = (400, 404), valider=est_image, pause=time.sleep) -> bytes | None:
+                      absent: tuple = (400, 404), valider=est_image, pause=None) -> bytes | None:
     """Le contenu de la tuile, ou None si elle est absente : un statut de
     absent (404 ; 400 hors de la matrice), un corps vide (204). ESSAIS essais,
     espacés de 2, 4 puis 8 s, sur une coupure, un statut d'erreur ou un corps
@@ -194,7 +194,7 @@ def telecharger_tuile(url: str, ouvrir, debit: Debit, continuer, *, entetes: dic
         except (OSError, http.client.HTTPException) as exc:
             erreur = exc
         if essai < ESSAIS - 1:
-            pause(2 ** (essai + 1))
+            (pause or time.sleep)(2 ** (essai + 1))
     code = erreur.code if isinstance(erreur, urllib.error.HTTPError) else None
     raise ErreurTuiles(f"Tuiles injoignables ({erreur}).", code) from erreur
 
