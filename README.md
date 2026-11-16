@@ -56,6 +56,12 @@ behave the same and a fix lands everywhere at once.
   handle closes, then runs; on Linux and macOS it gets its own process group
   and a lifeline: a tiny `sh` reads a pipe that only the app can write to,
   and kills the group when the pipe breaks.
+- `nico579_commons.tuiles`: raster tile download (WMTS or XYZ) into an MBTiles
+  file. A continuous queue (32 tiles in flight per connection), one keep-alive
+  HTTP/1.1 connection per thread and host with redirects followed, tiles checked
+  by image signature, sparse SQLite commits in WAL mode, retries, and a stop
+  only after N consecutive failures. The app keeps its URLs, its keys, any
+  re-encoding of a tile and the MBTiles metadata.
 
 The inventory of what is shared, and where the work stands, lives in
 [INVENTAIRE.md](INVENTAIRE.md) (in French). `python outils/inventaire_communs.py`
