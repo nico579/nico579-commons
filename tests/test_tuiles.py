@@ -165,6 +165,12 @@ class ConnexionsGardees(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             self.lire("/boucle")
 
+    def test_obtenir_rend_le_statut_sans_lever(self):
+        statut, type_contenu, corps = self.connexions.obtenir(self.racine + "/absente/1")
+        self.assertEqual((statut, corps), (404, b""))
+        statut, _, corps = self.connexions.obtenir(self.racine + "/ancien/1")
+        self.assertEqual((statut, corps), (200, PNG))
+
     def test_statut_d_erreur_comme_urlopen(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self.lire("/absente/1")

@@ -102,8 +102,9 @@ class Connexions:
     """Un urlopen qui garde une connexion HTTP/1.1 ouverte par fil et par hôte
     (keep-alive). Une connexion que le serveur a fermée se rouvre une fois ; un
     délai dépassé remonte tel quel, pour le nouvel essai de telecharger_tuile.
-    Les redirections sont suivies (REDIRECTIONS sauts). Un statut d'erreur lève
-    HTTPError, comme urlopen. fermer() libère les sockets en fin de travail."""
+    Les redirections sont suivies (REDIRECTIONS sauts). Appelé comme urlopen, un
+    statut d'erreur lève HTTPError ; obtenir() rend le statut sans lever.
+    fermer() libère les sockets en fin de travail."""
 
     def __init__(self):
         self.locales = threading.local()
@@ -140,19 +141,23 @@ class Connexions:
                 if essai or isinstance(exc, TimeoutError):
                     raise
 
-    def __call__(self, requete, timeout=DELAI):
-        url, entetes = requete.full_url, dict(requete.header_items())
+    def obtenir(self, url: str, entetes: dict | None = None, timeout: float = DELAI):
+        """GET d'une adresse, redirections suivies : (statut, type de contenu,
+        corps), quel que soit le statut (pas d'exception sur un 404 ou un 500 ;
+        les erreurs réseau remontent). Trop de redirections : HTTPError 310."""
         for _ in range(REDIRECTIONS + 1):
-            reponse, contenu = self._une_fois(url, entetes, timeout)
+            reponse, contenu = self._une_fois(url, entetes or {}, timeout)
             lieu = reponse.headers.get("location")
             if reponse.status in _REDIRIGE and lieu:
                 url = urllib.parse.urljoin(url, lieu)
                 continue
-            break
-        else:
-            raise urllib.error.HTTPError(url, 310, "Trop de redirections", reponse.headers, None)
-        if reponse.status >= 300:
-            raise urllib.error.HTTPError(url, reponse.status, reponse.reason, reponse.headers, None)
+            return reponse.status, reponse.headers.get("content-type", ""), contenu
+        raise urllib.error.HTTPError(url, 310, "Trop de redirections", {}, None)
+
+    def __call__(self, requete, timeout=DELAI):
+        statut, _, contenu = self.obtenir(requete.full_url, dict(requete.header_items()), timeout)
+        if statut >= 300:
+            raise urllib.error.HTTPError(requete.full_url, statut, http.client.responses.get(statut, ""), {}, None)
         return _Reponse(contenu)
 
     def fermer(self) -> None:
